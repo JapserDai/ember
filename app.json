@@ -7,7 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "android": {
-      "package": "com.ember.app",
+      "package": "com.emberhabit.app",
       "adaptiveIcon": {
         "backgroundColor": "#FBF3EA",
         "foregroundImage": "./assets/android-icon-foreground.png",
