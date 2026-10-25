@@ -7,14 +7,19 @@
  */
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { DEFAULT_AVATAR_ID } from '../domain/avatar';
 import { DEFAULT_DAY_START_HOUR, businessDate } from '../domain/date';
 import { newId } from './id';
 
 /** 默认难度：轻松。与引导语「先选温和的，之后随时能改」一致。 */
 const DEFAULT_DIFFICULTY = 'easy';
-/** 默认主题 */
+/**
+ * 主题两列的默认值。
+ *
+ * 界面现在只有一套白底主题，不再读这两列；但 settings 表的列有 NOT NULL 与 CHECK，
+ * 插入时必须给值。等主题回来时，这里换成新的默认主题 id 即可。
+ */
 const DEFAULT_THEME_ID = 'furnace';
-/** 默认明暗模式 */
 const DEFAULT_THEME_MODE = 'system';
 
 /** 启程礼：新玩家的初始余烬 */
@@ -37,13 +42,15 @@ export function seedIfEmpty(db: SQLiteDatabase): void {
   const today = businessDate(now, DEFAULT_DAY_START_HOUR);
 
   db.withTransactionSync(() => {
-    // 玩家：1 级，XP 0，五维全 0，名字「旅人」
+    // 玩家：1 级，XP 0，五维全 0，名字「旅人」，头像默认狐狸。
+    // avatar_id 不写也能落库（列有 DEFAULT 'fox'），但这里显式写：
+    // 「新玩家的头像就是默认那只」是一条产品规则，不该只靠一条 SQL 默认值存在。
     db.runSync(
       `INSERT INTO player (
          id, display_name, level, xp_total, xp_in_level, highest_level,
-         ember, material, onboarding_done, created_at, updated_at
-       ) VALUES (?, ?, 1, 0, 0, 1, ?, ?, 0, ?, ?)`,
-      [playerId, '旅人', STARTER_EMBER, STARTER_MATERIAL, now, now]
+         ember, material, onboarding_done, avatar_id, created_at, updated_at
+       ) VALUES (?, ?, 1, 0, 0, 1, ?, ?, 0, ?, ?, ?)`,
+      [playerId, '旅人', STARTER_EMBER, STARTER_MATERIAL, DEFAULT_AVATAR_ID, now, now]
     );
 
     // 设置：单行，id 固定 'singleton'

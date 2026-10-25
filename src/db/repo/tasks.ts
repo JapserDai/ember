@@ -9,6 +9,7 @@
  *      这里只提供「按状态取全部任务」这种原始数据。
  *   3. recurrence_config 以 JSON 字符串存库，进出这一层时做序列化 / 反序列化。
  */
+import { isDateKey } from '../../domain/date';
 import type { ScorableTask } from '../../domain/score';
 import { getDb, newId } from '../client';
 import type {
@@ -51,6 +52,7 @@ export interface TaskRow {
   allow_backfill: number;
   ember_cost: number;
   goal_id: string | null;
+  reminder_minute: number | null;
   created_at: number;
   updated_at: number;
   deleted_at: number | null;
@@ -81,6 +83,8 @@ export interface Task {
   allowBackfill: boolean;
   emberCost: number;
   goalId: string | null;
+  /** 提醒时刻：从零点起的分钟数，0 = 00:00，1439 = 23:59。null = 不提醒 */
+  reminderMinute: number | null;
   /** 软删除时间戳。本层返回的对象永远是 null（已删除的查不出来），字段保留是为了对齐 domain 的形状 */
   deletedAt: number | null;
   createdAt: number;
@@ -111,6 +115,8 @@ export interface CreateTaskInput {
   maxPerDay?: number;
   allowBackfill?: boolean;
   emberCost?: number;
+  /** 提醒时刻（从零点起的分钟数）。不传 = 不提醒 */
+  reminderMinute?: number | null;
 }
 
 /** 可修改字段。全部可选，只写传进来的键。 */
@@ -132,6 +138,7 @@ export interface UpdateTaskInput {
   maxPerDay?: number;
   allowBackfill?: boolean;
   emberCost?: number;
+  reminderMinute?: number | null;
 }
 
 /** 查询任务的过滤条件 */
@@ -156,7 +163,7 @@ const TASK_COLUMNS = `
   id, player_id, title, notes, type, recurrence, recurrence_config,
   anchor_date, interval_n, weekly_target, start_date, end_date, due_date,
   status, completed_at, attribute, icon, color, sort_order,
-  max_per_day, allow_backfill, ember_cost, goal_id,
+  max_per_day, allow_backfill, ember_cost, goal_id, reminder_minute,
   created_at, updated_at, deleted_at
 `;
 
@@ -186,6 +193,7 @@ function toTask(row: TaskRow): Task {
     allowBackfill: row.allow_backfill === 1,
     emberCost: row.ember_cost,
     goalId: row.goal_id,
+    reminderMinute: row.reminder_minute,
     deletedAt: row.deleted_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -271,6 +279,13 @@ export function createTask(input: CreateTaskInput): Task {
     throw new Error('任务标题最多 80 个字');
   }
 
+  // 截止日必须是 YYYY-MM-DD。不校验的话，一个写错的日期会静默进库，
+  // 然后 formatDueLabel 解析失败、卡片上那一行元信息永远不出现——
+  // 用户会以为自己没填上，再填一次还是一样。
+  if (input.dueDate != null && !isDateKey(input.dueDate)) {
+    throw new Error('截止日要写成 2027-03-01 这样的格式');
+  }
+
   const now = Date.now();
   const id = newId();
   const playerId = currentPlayerId();
@@ -281,13 +296,13 @@ export function createTask(input: CreateTaskInput): Task {
        id, player_id, title, notes, type, recurrence, recurrence_config,
        anchor_date, interval_n, weekly_target, start_date, end_date, due_date,
        status, completed_at, attribute, icon, color, sort_order,
-       max_per_day, allow_backfill, ember_cost, goal_id,
+       max_per_day, allow_backfill, ember_cost, goal_id, reminder_minute,
        created_at, updated_at, deleted_at
      ) VALUES (
        ?, ?, ?, ?, ?, ?, ?,
        ?, ?, ?, ?, ?, ?,
        'active', NULL, ?, ?, ?, ?,
-       ?, ?, ?, NULL,
+       ?, ?, ?, NULL, ?,
        ?, ?, NULL
      )`,
     [
@@ -311,6 +326,7 @@ export function createTask(input: CreateTaskInput): Task {
       input.maxPerDay ?? 1,
       input.allowBackfill === false ? 0 : 1,
       input.emberCost ?? 0,
+      input.reminderMinute ?? null,
       now,
       now,
     ]
@@ -430,6 +446,7 @@ export function updateTask(id: string, patch: UpdateTaskInput): void {
   if (patch.maxPerDay !== undefined) put('max_per_day', patch.maxPerDay);
   if (patch.allowBackfill !== undefined) put('allow_backfill', patch.allowBackfill);
   if (patch.emberCost !== undefined) put('ember_cost', patch.emberCost);
+  if (patch.reminderMinute !== undefined) put('reminder_minute', patch.reminderMinute);
 
   if (sets.length === 0) return;
 

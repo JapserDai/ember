@@ -34,11 +34,15 @@ export type { TaskStatus } from '../domain/recurrence';
 export type { DifficultyKey as Difficulty } from '../domain/balance';
 
 /**
- * 主题 id。
+ * 主题 id —— **界面暂时不用**。
  *
- * 注意：这里的取值必须和 theme/tokens.ts 的 ThemeId 完全一致，
- * 但两边是各自声明的——db 层不能 import theme 层（依赖方向是 db → domain，theme 是界面侧）。
- * 改这里就要同步改 tokens.ts，以及 v1 建表 SQL 里的 CHECK（v1 已发布，靠迁移 2 扩）。
+ * 界面现在只有一套白底主题（见 theme/tokens.ts），ThemeProvider 也不再读写这两个字段。
+ * 但 settings 表和它的 CHECK 约束已经发布过（v1、v2 两个版本的建表 SQL 都写了
+ * `theme_id IN (...)`），而「已发布的建表常量永不修改」是 D31 立的规矩，
+ * 所以这两列原样留着，取值也照样声明 —— 只是暂时没有读者。
+ *
+ * 将来主题回来时，直接照着这里加取值 + 写一条扩 CHECK 的迁移即可。
+ * 到那时要注意：**不要**忘记建表 SQL 里的 CHECK 也要同步（新增的取值只在迁移里扩）。
  */
 export type ThemeId = 'furnace' | 'nightvoyage' | 'tundra' | 'daybreak';
 
@@ -392,4 +396,350 @@ ALTER TABLE settings_v2 RENAME TO settings;
 -- ALTER TABLE 加列带 CHECK 在 SQLite 里是允许的：旧行按默认值 0 补齐。
 ALTER TABLE player ADD COLUMN avatar_seed INTEGER NOT NULL DEFAULT 0
   CHECK (avatar_seed >= 0);
+`;
+
+// ============================================================
+// 迁移 3：玩家可以上传自己的头像
+//
+// 原本（D20）头像是纯生成的，一个 avatar_seed 整数就够。现在允许上传一张图，
+// 就必须存下这张图本身——但**只存一份小图**，不存原图：
+//
+//   - 存原图要处理 4K 照片、要占几 MB、要在备份里带上几 MB 的 base64。
+//   - 头像最大只显示 64px（导出备份时按 128px 算也够），所以一律先缩到 256×256
+//     再转成 JPEG 存进来。一张 256×256 的 JPEG 大约 8–20 KB，SQLite 里放得下。
+//
+// 存 base64 文本而不是 BLOB：
+//   1. expo-sqlite 的同步 API 对 BLOB 支持要绕（Uint8Array 进出），
+//      base64 字符串是最不容易出错的形式；
+//   2. 导出 JSON 时不用再做一次编码，直接把字符串塞进去就行；
+//   3. 代价是体积大 33%，但 256×256 的图本来就小，这点代价可以接受。
+//
+// avatar_data 为 NULL 表示「没上传过，用生成的人像」——老用户升级上来就是 NULL，
+// 不需要写任何数据迁移。
+//
+// 为什么不建一张新表：头像和玩家是 1:1，且永远只有一行；单开一张表只会多一次 JOIN
+// 和一条「这张表什么时候会有第二行」的疑问。
+// ============================================================
+
+/** 2 → 3：player 加两列，存自定义头像的图片与它的更新时间 */
+export const MIGRATE_V2_TO_V3_SQL = `
+-- 自定义头像的图片，base64 编码的 JPEG（不含 data: 前缀）。
+-- 为 NULL 表示没上传过，界面用 (id, avatar_seed) 生成的人像。
+ALTER TABLE player ADD COLUMN avatar_data TEXT;
+
+-- 上传时间。只用于显示「什么时候换的」与备份里的可读性，不参与任何逻辑。
+-- 0 表示没上传过。
+ALTER TABLE player ADD COLUMN avatar_updated_at INTEGER NOT NULL DEFAULT 0;
+`;
+
+// ============================================================
+// 迁移 4：玩家可以写一句自我介绍
+//
+// 「人物资料」在这一版只包含三样：名字、一句自我介绍、头像。
+// 名字与头像在 v1–v3 已经有了，这里只补 bio。
+//
+// 为什么加在 player 表上而不是 settings：
+//   settings 是「把 App 调成你想要的样子」，player 是「你是谁、你走到了哪儿」。
+//   名字与自我介绍都属于后者。分开放的话，「导出我的资料」要查两张表，
+//   而其中一张永远是单行——这种拆法只增加理解成本。
+//
+// 为什么默认是 NULL 而不是 ''：
+//   NULL 表示「从来没写过」，'' 表示「写过、后来清空了」。
+//   这一版界面对两者一视同仁（都不显示那一行），但导出与以后可能的
+//   「引导里让新用户写一句」需要区分。用 NULL 也顺手省掉一次数据迁移。
+// ============================================================
+
+/** 3 → 4：player 加一列自我介绍 */
+export const MIGRATE_V3_TO_V4_SQL = `
+-- 一句自我介绍。NULL 表示从来没写过，'' 表示写过又清空了。
+-- 上限由 domain/profile.ts 的 BIO_MAX 管（80 字），这里不加 CHECK：
+-- 长度按「用户感知的字数」算，SQLite 的 length() 算的是码点，
+-- 两边规则不一致的话，会在边界上出现「界面允许但写库报错」。
+ALTER TABLE player ADD COLUMN bio TEXT;
+`;
+
+// ============================================================
+// 迁移 5：补上 tasks.goal_id
+//
+// 这一列在**当前**的 SCHEMA_SQL_V1 里是有的，所以从 v1 一次建起来的库不缺。
+// 但在它被写进建表语句之前就已经创建过数据库的安装，`CREATE TABLE IF NOT EXISTS`
+// 不会给已存在的表补列——那些库永远缺 goal_id。
+//
+// 症状：每次读写 tasks 都报 no such column: goal_id，首页整页读不出数据，
+// 新建任务点了保存没有任何反应（INSERT 里带了这一列）。
+//
+// 为什么现在才发现：迁移器从 v1 到 v4 没有一步碰过 tasks 的列，
+// 而 v1 的建表语句被改过——「已发布的迁移永不修改」这条规则管住了迁移函数，
+// 没管住被它引用的建表常量。
+// ============================================================
+
+/** 4 → 5：tasks 加 goal_id（只对缺这一列的库执行，见 migrate.ts） */
+export const MIGRATE_V4_TO_V5_SQL = `
+-- 关联目标（可选）。一个任务最多属于一个目标。
+-- 不加外键：目标删除是软删除，由 repo 层负责把关联任务的 goal_id 置空。
+ALTER TABLE tasks ADD COLUMN goal_id TEXT;
+`;
+
+// ============================================================
+// 迁移 6：tasks 加 reminder_minute —— 每个任务自己的提醒时刻
+//
+// 为什么存「从零点起的分钟数」而不是 "20:30" 这样的字符串：
+//   - 一个整数就能排序、比较、做 CHECK，字符串要解析才能比；
+//   - 排序时「早上 8 点」排在「晚上 20 点」前面，是数字序，不是字典序；
+//   - 时区变化不影响它 —— 它记的是「墙上时钟的几点」，不是绝对时刻。
+//
+// 为什么 NULL 表示「不提醒」而不是 0：
+//   0 是合法的（午夜 0 点提醒），用一个合法值表示「没有」会让两者分不开。
+//   与 bio、due_date 一样：NULL 是「没设过」，不是「设成了空」。
+//
+// 为什么是 0–1439 而不是 0–23 与 0–59 两列：
+//   两列就多一种非法组合（hour=24、minute=99），要写两条 CHECK 去挡。
+//   一列分钟数只有一个区间，越界直接拒绝。
+//
+// 这一列**不参与任何数值计算**：提醒只是提醒，不因为设了提醒多发一点 XP。
+// ============================================================
+
+/** 5 → 6：tasks 加 reminder_minute（每个任务自己的提醒时刻） */
+export const MIGRATE_V5_TO_V6_SQL = `
+-- 提醒时刻：从当天零点起的分钟数，0 = 00:00，1439 = 23:59。NULL = 不提醒。
+-- 只对活跃任务生效：暂停、归档、已删除、已完成的待办都不会排提醒。
+ALTER TABLE tasks ADD COLUMN reminder_minute INTEGER
+  CHECK (reminder_minute IS NULL OR (reminder_minute >= 0 AND reminder_minute <= 1439));
+`;
+
+// ============================================================
+// 迁移 7：头像从「生成的人像 + 上传的照片」换成「七个像素动物挑一个」
+//
+// 上一版头像有两条路：按 (id, avatar_seed) 算出来的墨色版画人像，
+// 以及从相册上传的 256×256 JPEG（base64 存在 avatar_data）。
+// 这一版两者都不要了：头像是一张 16×16 的像素图，用户从七个里左右挑一个，
+// 库里只存一个词（'fox' / 'cat' / …）。
+//
+// 为什么要动数据，而不只是加一列：
+//   1. avatar_data 是用户照片的 base64，一张 8–20 KB。用户已经把头像换成像素动物了，
+//      那张照片就再也不会被画出来——留着它等于在库里、在每份备份里
+//      永久携带一张已经不再属于任何东西的照片。这正是「把现有的头像数据删除」。
+//   2. 清空是**不可逆**的，但可以接受：它对应的旧能力（上传自己的照片）
+//      已经被产品层面移除了（用户明确要求换成像素动物），不是暂时下线。
+//
+// 为什么 avatar_seed / avatar_data / avatar_updated_at 三列不删：
+//   按 D31 的规则，已经发布过的列只能废弃、不能删——删列在 SQLite 里是重建整张表，
+//   而 player 上有外键（settings / tasks / checkins / goals 都 REFERENCES player）。
+//   为了三个再也没人读的列去重建一个被四张表引用的表，风险远大于收益。
+//   它们从这一版起是死列，与 settings.theme_id 同一种状态。
+// ============================================================
+
+/** 6 → 7：player 加 avatar_id（默认 'fox'），并清空旧的 avatar_data */
+export const MIGRATE_V6_TO_V7_SQL = `
+-- 挑中的头像 id。默认 'fox'：老用户升级上来看到的是默认动物，
+-- 而不是一张空白的图。取值由 domain/avatar.ts 的 AVATAR_IDS 管，
+-- 这里不加 CHECK：加一个七选一的 CHECK 意味着以后每加一只动物都要重建一次 player 表。
+ALTER TABLE player ADD COLUMN avatar_id TEXT NOT NULL DEFAULT 'fox';
+
+-- 清掉上一版上传的照片。旧版本把用户的相册照片以 base64 存在这一列，
+-- 而这一版已经不会再画它了——留着只是让库和每份备份多背一张 8–20 KB 的死数据。
+UPDATE player SET avatar_data = NULL, avatar_updated_at = 0;
+`;
+
+// ============================================================
+// 迁移 8：连胜的宽限券与修复（D38）
+//
+// ---- 为什么这一步是「加一张表」而不是「给 player 加 11 个列」----
+//
+// docs/04 §7.1 里留了一段参考 SQL，要把 streak_current / streak_best /
+// streak_break_date / streak_repair_deadline / streak_grace_remaining …
+// 全部加在 player 上。D21 当时否掉了它，理由是「事实表是唯一真相，
+// 再存一份就有对不上的那天」。
+//
+// D38 重新看了这个问题，结论是：**矛盾不在「要不要存」，而在「存什么」**。
+//
+//   - 存 current / best / totalDays → 与事实表重复。撤销一次打卡，
+//     存下来的 current 不会自己变小，两份数据开始打架。这就是 D21 拒它的理由，
+//     而这个理由仍然成立。
+//   - 存「哪一天被宽限/修复过」→ **推不出来**。空档里没有 checkin，
+//     没有别的地方能知道「这一天被宽恕了」。这才真正需要落库。
+//
+// 所以这一步只加一张 streak_bridges 表，连胜仍然每次从事实现算
+// （domain/streak.ts 的 summarizeDates 接受 bridges 参数）。
+//
+// ---- 为什么是独立一张表，而不是给 checkins 加一列 ----
+//
+// checkins 是「我做过的事」的账本，它的每一行都发 XP / 余烬 / 五维。
+// 桥接日什么都没做，一分钱都不发。把它塞进 checkins 只有两条路：
+//   1. 加一列 kind 区分——那就要改 uq_checkin_active 这个唯一索引的语义，
+//      而索引已发布；且所有「读打卡」的地方（统计、导出、重算快照）
+//      都得多一个过滤条件，漏一处就把宽恕的日子算成了真做过的事。
+//   2. 发一分钱的奖励——直接违背「宽限券是桥接，不是奖励」。
+// 单独一张表则完全不碰 checkins 的任何现有语义。
+//
+// ---- 为什么不加外键到 tasks ----
+//
+// 桥接的是「这个人这一天」，不是「某个习惯这一天」——与我的页的整体连胜
+// 同一个口径。连胜在这个 App 里就是整体概念（首页每条习惯的连胜
+// 是它自己的事实算的，不需要桥接）。
+// 不加 task_id 还有一个好处：删掉一个习惯不会连带删掉历史桥接，
+// 于是「累计」永远不因删除而变小。
+// ============================================================
+
+/** 桥接日表：被宽限券或付费修复认定为「有记录」的那些日子 */
+export const STREAK_BRIDGES_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS streak_bridges (
+  -- 一个业务日只能有一条桥接记录（宽限或修复，二选一）
+  local_date  TEXT PRIMARY KEY NOT NULL
+                CHECK (local_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+
+  -- grace = 宽限券自动桥接；repair = 付余烬修复
+  kind        TEXT NOT NULL CHECK (kind IN ('grace','repair')),
+
+  -- 修复花掉的余烬与材料。宽限券为 0。
+  -- 记下来是为了「花了多少」可审计，而且不靠玩家余额反推。
+  ember_spent    INTEGER NOT NULL DEFAULT 0 CHECK (ember_spent >= 0),
+  material_spent INTEGER NOT NULL DEFAULT 0 CHECK (material_spent >= 0),
+
+  -- 修复时一次补掉的那个缺口（含首尾）。只用于展示与审计
+  gap_start   TEXT,
+  gap_end     TEXT,
+
+  created_at  INTEGER NOT NULL
+);
+`;
+
+/** 7 → 8：加 streak_bridges 表（连胜的宽限券与修复） */
+export const MIGRATE_V7_TO_V8_SQL = `
+${STREAK_BRIDGES_TABLE_SQL}
+`;
+
+// ============================================================
+// 迁移 9：周复盘（阶段 3 第 2 条）
+//
+// ---- 为什么主键是「那一周的周一」而不是自增 id ----
+//
+// 一周只能有一份复盘。用 week_key 做主键，这件事就由数据库保证——
+// 而不是靠「写之前先查一下有没有」这种在两次点击之间会漏的写法。
+// 重写同一周就是一次 UPDATE（见 services/review.ts 的 saveReview）。
+//
+// 为什么存「周一的日期」而不是「2026-W43」这种周序号：
+// ISO 周号在跨年那一周会跳到上一年的第 52/53 周，
+// 而「这一周的周一是哪天」永远唯一，且能直接用来算区间。
+//
+// ---- 为什么三个固定问题存成三列，而不是一张 answers 子表 ----
+//
+// 问题固定就三个，永不变（docs/05：不允许加字段）。
+// 子表会多一次 JOIN 与一个「这一周怎么只有两个答案」的非法状态要防；
+// 三列都是 TEXT NOT NULL DEFAULT ''，空串就是「没写」。
+//
+// ---- 为什么没有「跳过了」这个状态 ----
+//
+// 没写就是没有行。**不要**写一行 status='skipped'：
+// 那会变成一张「你欠了几周」的账，而复盘跳过不惩罚是一条硬规则。
+// 历史里只记「哪几周写过」，不记「哪几周没写」。
+// ============================================================
+
+/** 周复盘表：一周一行 */
+export const REVIEWS_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS reviews (
+  -- 这一周的周一（YYYY-MM-DD）。一周只能有一份复盘
+  week_key    TEXT PRIMARY KEY NOT NULL
+                CHECK (week_key GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+
+  -- 三个固定问题。空串 = 没写，NULL 不允许（少一种状态要判断）
+  answer_keep TEXT NOT NULL DEFAULT '',   -- 这周有哪件事想留着
+  answer_stuck TEXT NOT NULL DEFAULT '',  -- 哪件事一直没动
+  answer_next TEXT NOT NULL DEFAULT '',   -- 下周想试一点什么不一样
+
+  -- 自由输入（可选）
+  answer_free TEXT NOT NULL DEFAULT '',
+
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+`;
+
+/** 8 → 9：加 reviews 表（周复盘） */
+export const MIGRATE_V8_TO_V9_SQL = `
+${REVIEWS_TABLE_SQL}
+`;
+
+// ============================================================
+// 迁移 10：月复盘（阶段 3 第 3 条）
+//
+// 与周复盘同一个形态：一月一行，主键是「YYYY-MM」。
+// 一月只能有一份，这件事由主键保证，而不是靠「写之前先查」。
+//
+// ---- 为什么只有一列正文 ----
+//
+// 周复盘已经问过三个具体问题了（这周想留着什么 / 什么没动 / 下周试什么）。
+// 月末再来三个，一个月就要写八个。所以月复盘只留一句「这个月想说的」。
+// 它的主体是**看**（数字与五维变化），不是写。
+// ============================================================
+
+/** 月复盘表：一个月一行 */
+export const MONTH_REVIEWS_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS month_reviews (
+  -- 这个月的键 YYYY-MM。一个月只能有一份月复盘
+  month_key   TEXT PRIMARY KEY NOT NULL
+                CHECK (month_key GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),
+
+  -- 这个月想说的一句话。空串 = 没写（NULL 不允许，少一种状态要判断）
+  note        TEXT NOT NULL DEFAULT '',
+
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+`;
+
+/** 9 → 10：加 month_reviews 表（月复盘） */
+export const MIGRATE_V9_TO_V10_SQL = `
+${MONTH_REVIEWS_TABLE_SQL}
+`;
+
+// ============================================================
+// 迁移 11：精炼材料（阶段 4 第 6 条·材料合成）
+//
+// ---- 为什么是一列，而不是一张材料表 ----
+//
+// 这一版只有两种材料：普通与精炼。两种都是「一个数字」——
+// 没有过期、没有绑定、没有品质词条。为两个数字开一张表，
+// 会多一个 JOIN 与一个「这个玩家怎么没有材料行」的非法状态要防。
+//
+// 等阶段 5 真的需要「材料种类」时（比如不同活动掉不同材料），
+// 那时再开表，并把这两个数字迁过去。现在开表是为将来买单。
+//
+// ---- 为什么默认值是 0 而不是 NULL ----
+//
+// 0 是合法的（一个精炼材料都没有），而且它是「没有」的唯一含义。
+// 用 NULL 会让「没有」有两种写法，每处读它都要判两次。
+// ============================================================
+
+/** 10 → 11：player 加 refined_material（材料合成产出的精炼材料） */
+export const MIGRATE_V10_TO_V11_SQL = `
+-- 精炼材料：3 个普通材料合成 1 个。目前与 material 一样，只是一个数字。
+-- 默认 0：老库升级上来一个都没有，而合成是用户主动做的事，
+-- 升级不该凭空送任何东西。
+ALTER TABLE player ADD COLUMN refined_material INTEGER NOT NULL DEFAULT 0
+  CHECK (refined_material >= 0);
+`;
+
+// ============================================================
+// 迁移 12：月度活动奖励的「发到哪个月了」（阶段 5 第 1 条）
+//
+// ---- 为什么需要一列 ----
+//
+// 月度奖励是**自动发**的（不需要用户点「领取」），而自动发就必须
+// 能回答「这个月发过了没有」。不记的话，每次启动都会发一遍。
+//
+// 为什么不从别的数据推：
+//   - 材料余额的变化推不出来（没有流水表，而为此开一张流水表是阶段 6 的事）；
+//   - 打卡记录能推出「哪个月有记录」，但推不出「奖励有没有真的发过」——
+//     用户可能在这个月把材料花掉了，那与「没发过」看起来一样。
+//
+// 所以记一个「上个月发过哪个月」的键。NULL = 从来没发过。
+// ============================================================
+
+/** 11 → 12：player 加 last_event_reward_month（月度奖励发到哪个月了） */
+export const MIGRATE_V11_TO_V12_SQL = `
+-- 最近一次发过奖励的月份键 YYYY-MM。NULL = 从来没发过。
+-- 不加 CHECK：格式由代码保证（它就是 today.slice(0,7)），
+-- 而加一个 GLOB 约束会在用户手改库时把整条迁移链卡住。
+ALTER TABLE player ADD COLUMN last_event_reward_month TEXT;
 `;

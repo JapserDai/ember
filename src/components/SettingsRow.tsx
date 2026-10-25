@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pressable, Text, View } from 'react-native';
 
+import { Card } from './Card';
 import { useTheme } from '../theme/ThemeProvider';
 
 /**
@@ -14,7 +15,11 @@ import { useTheme } from '../theme/ThemeProvider';
  * 为什么不给未做的行做「灰色可点」：点了没反应比不给点更让人困惑。
  * 不做的行直接不给 Pressable，无障碍上也不会被读成按钮。
  *
- * 视觉沿用「我的」页的设置行：通栏、44 高、发丝分隔线、无卡片、无箭头。
+ * 视觉沿用「我的」页：每行一张白卡片、44 高、无箭头。
+ *
+ * 早先这一页是一张通栏的卡、行与行之间画发丝线。现在每行各占一张卡——
+ * 与「每一条数据都要框起来」同一套语言。留在同一张卡里的只有
+ * QuickStart 那三个模板，因为那三个是同一件事的三个选项。
  */
 
 export type SettingsRowState = 'interactive' | 'readonly' | 'later';
@@ -25,8 +30,6 @@ export interface SettingsRowProps {
   /** 右侧当前值。later 状态下忽略，统一显示「之后」 */
   value?: string;
   state: SettingsRowState;
-  /** 是否显示上方的分隔线。分组内除第一行外都传 true */
-  divider?: boolean;
   /** interactive 状态下的点击回调 */
   onPress?: () => void;
   /** 无障碍用的补充说明，例如「还不能改」 */
@@ -37,7 +40,6 @@ export function SettingsRow({
   label,
   value,
   state,
-  divider = false,
   onPress,
   hint,
 }: SettingsRowProps) {
@@ -55,8 +57,18 @@ export function SettingsRow({
 
   const content = (
     <>
+      {/*
+       * 左侧名字。
+       *
+       * 外观走查（1.5 倍字号）加的两件事：flexShrink 让长的值先换行、
+       * 而不是把名字挤成两行；以及 numberOfLines={2}——「一句自我介绍」
+       * 这个标签有 6 个字，1.5 倍字号下在窄屏上会占满半行。
+       * 名字是本行要读的东西，值才是附带的。
+       */}
       <Text
+        numberOfLines={2}
         style={{
+          flexShrink: 1,
           fontSize: theme.typography.size.body,
           lineHeight: theme.typography.lineHeight.body,
           color: labelColor,
@@ -65,14 +77,33 @@ export function SettingsRow({
       >
         {label}
       </Text>
+      {/*
+       * 右侧的值。
+       *
+       * 加了 numberOfLines：早先这里的值都是短的（主题名、难度、时刻），
+       * 但「一句自我介绍」可以有 80 字，一行放不下会把左边那个名字挤窄，
+       * 甚至把它挤成两行——而这一行的语义是「左边是名字、右边是状态」，
+       * 两边高度不一致就不再是同一行了。
+       * 被截断的值用省略号收尾，用户点进去就能看到全文。
+       *
+       * flexShrink: 1 让它先让位，而不是把 label 推走。
+       *
+       * 外观走查（1.5 倍字号）改的一处：1 → 2 行。
+       * 字号放大后一行只能放十来个字，一个 80 字的自我介绍只剩「想写点什么就…」，
+       * 而这一页的值是用户判断「我现在是什么状态」的唯一依据。
+       * 两行仍然会截断，但至少看得出那句话说的是什么。
+       */}
       <Text
+        numberOfLines={2}
         style={{
+          flexShrink: 1,
           marginLeft: theme.spacing.md,
           fontSize: theme.typography.size.label,
           lineHeight: theme.typography.lineHeight.label,
           color: valueColor,
           fontFamily: theme.typography.fontFamily.body,
           fontVariant: ['tabular-nums'],
+          textAlign: 'right',
         }}
       >
         {displayValue}
@@ -82,35 +113,41 @@ export function SettingsRow({
 
   const rowStyle = {
     flexDirection: 'row' as const,
+    // 两边都可能换行到两行，此时 center 让两块作为一个整体垂直居中；
+    // 外面再加一层上下 padding，避免两行内容贴着卡片边框
     alignItems: 'center' as const,
     justifyContent: 'space-between' as const,
     minHeight: theme.touchTarget,
-    borderTopWidth: divider ? 1 : 0,
-    borderTopColor: palette.border,
+    paddingHorizontal: theme.spacing.cardPadding,
+    paddingVertical: theme.spacing.sm,
   };
 
   // 未实现的行不给 Pressable：点了没反应比不给点更让人困惑
   if (!isInteractive) {
     return (
-      <View
-        accessible
-        accessibilityLabel={`${label}，${state === 'later' ? '还不能改' : displayValue}`}
-        style={rowStyle}
-      >
-        {content}
-      </View>
+      <Card style={{ marginBottom: theme.spacing.cardGap }} padding={0}>
+        <View
+          accessible
+          accessibilityLabel={`${label}，${state === 'later' ? '还不能改' : displayValue}`}
+          style={rowStyle}
+        >
+          {content}
+        </View>
+      </Card>
     );
   }
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${label}，${displayValue}`}
-      accessibilityHint={hint}
-      onPress={onPress}
-      style={({ pressed }) => [rowStyle, { opacity: pressed ? 0.55 : 1 }]}
-    >
-      {content}
-    </Pressable>
+    <Card style={{ marginBottom: theme.spacing.cardGap }} padding={0}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${label}，${displayValue}`}
+        accessibilityHint={hint}
+        onPress={onPress}
+        style={({ pressed }) => [rowStyle, { opacity: pressed ? 0.55 : 1 }]}
+      >
+        {content}
+      </Pressable>
+    </Card>
   );
 }

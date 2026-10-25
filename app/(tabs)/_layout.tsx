@@ -1,52 +1,97 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
+import { TabBarIcon, type TabIconName } from '../../src/components/TabBarIcon';
+import { MAX_FONT_SCALE } from '../../src/theme/tokens';
 import { useTheme } from '../../src/theme/ThemeProvider';
 
 /**
- * 底部 4 个 tab：今天 / 目标 / 回忆 / 我的（docs/02 §5.1）。
+ * 底部 4 个 tab：今天 / 目标 / 回忆 / 我的（docs/02 §4.1）。
  *
- * 图标用单个汉字，不用图标库：
- *   - 少一个依赖，少一份打包体积；
- *   - 中文原生的产品，用一个字当图标比用通用线条图标更贴。
+ * 图标是手绘的 SVG（src/components/TabBarIcon.tsx），不装图标库。
+ * 早先的做法是用一个汉字当图标（今 / 标 / 忆 / 我），问题在于
+ * 「今」压着「今天」——一列里两行中文，读起来是重复而不是「图形 + 名字」，
+ * 而且 19px 的字和 11px 的标签字重接近，视觉上分不出哪层是图标。
  *
- * 选中态不靠彩色文字（彩色小字压在底栏上对比度不够），
- * 靠「字重 + 下方一个余烬小点」。两件事同时变化，色盲用户也看得出来。
+ * 选中态有三件事同时变化，任何一件单独失效都还能分辨：
+ *   1. 线宽从 1.45 变成 1.95（不看颜色也认得出来——色盲用户靠这一条）；
+ *   2. 颜色从次要色变成正文色（不是主色：主色是「火」的颜色，
+ *      四个图标里有两个提到火，底栏全都染上余烬红会把火的分量用光）；
+ *   3. 图标下方一个 3px 的余烬点，只有选中时才有实体。
  */
 
-/** 每个 tab 的占位字形与中文名 */
-const TABS = [
-  { name: 'index', title: '今天', glyph: '今' },
-  { name: 'goals', title: '目标', glyph: '标' },
-  { name: 'memories', title: '回忆', glyph: '忆' },
-  { name: 'me', title: '我的', glyph: '我' },
-] as const;
+interface TabDef {
+  name: string;
+  title: string;
+  icon: TabIconName;
+}
+
+const TABS: readonly TabDef[] = [
+  { name: 'index', title: '今天', icon: 'today' },
+  { name: 'goals', title: '目标', icon: 'goals' },
+  { name: 'memories', title: '回忆', icon: 'memories' },
+  { name: 'me', title: '我的', icon: 'me' },
+];
 
 export default function TabsLayout() {
   const { theme, palette } = useTheme();
+
+  /*
+   * 底栏高度必须跟着系统字号长（外观走查：1.5 倍字号下的截断）。
+   *
+   * 原因：底栏的高度原来是一个**写死的数**（62），而里面的标签是一个
+   * **会跟着系统字号变高的东西**。系统把字号放到 1.5 倍时，标签行高从 14
+   * 变成 21，那 7 个像素没地方去，就从标签的上下两头被裁掉——
+   * 表现是「今天」的下半截没了，而代码里没有任何一处看得出问题。
+   *
+   * 行高已经由 ThemeProvider 按系统字号算好了（见那里的注释），
+   * 所以这里只管把它换算成底栏高度：固定部分（图标 23 + 点 3 + 上下留白 16）+ 标签行。
+   * 1.0 倍时正好是 62（与原来的取值逐像素一致），1.5 倍时变成 69。
+   */
+  const labelSize = theme.typography.size.caption - 2;
+  const labelLine = theme.typography.lineHeight.caption - 2;
+  const barHeight = 62 + (labelLine - 14);
 
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: palette.text,
+        tabBarActiveTintColor: palette.primary,
         tabBarInactiveTintColor: palette.textMuted,
         tabBarStyle: {
-          backgroundColor: palette.background,
+          // 底栏用白（surface），不是页面底色（#FAF9F8）：
+          // Microsoft To Do 的底栏是一张白纸压在灰底上，顶部一条发丝线。
+          // 用页面底色的话，底栏和内容会连成一片，看不出「这是另一层」。
+          backgroundColor: palette.surface,
           borderTopColor: palette.border,
           borderTopWidth: 1,
-          // 触控目标最小 44（docs/02 §10）
-          height: 62,
-          paddingTop: 8,
-          paddingBottom: 10,
+          // 图标 23 + 点 3 + 标签行 + 上下留白。算式见上面那段注释：
+          // 1.0 倍时就是原来的 62，1.5 倍时跟着标签一起长（docs/02 §9）
+          height: barHeight,
+          paddingTop: 7,
+          paddingBottom: 9,
           // 去掉安卓默认的投影，底栏是一条干净的线
           elevation: 0,
         },
         tabBarLabelStyle: {
-          fontSize: theme.typography.size.caption - 2,
-          letterSpacing: 0.5,
+          fontSize: labelSize,
+          // 行高显式写出来：上面的 barHeight 是按这个数算的。
+          // 不写的话，标签行高由字体自己决定，而那个值不跟系统字号缩放——
+          // 于是 barHeight 算出来是 70，标签却只占 16，底栏中间会空一大块。
+          lineHeight: labelLine,
           fontFamily: theme.typography.fontFamily.body,
+          //
+          // 封顶 1.5：这个位置**不能**让字再大了。底栏是四个 tab 平分的，
+          // 标签比图标宽的时候，四个标签会互相挤到对方的位置上。
+          // 1.5 倍是 docs/02 §9 定的上限。
+          //
+          maxFontSizeMultiplier: MAX_FONT_SCALE,
+        },
+        // 图标与标签之间的间距。默认值在各平台不一致，写死一个更好对齐
+        tabBarIconStyle: {
+          marginTop: 0,
+          marginBottom: 2,
         },
         sceneStyle: { backgroundColor: palette.background },
       }}
@@ -58,26 +103,29 @@ export default function TabsLayout() {
           options={{
             title: tab.title,
             tabBarIcon: ({ color, focused }) => (
-              <View style={styles.icon}>
-                <Text
-                  style={{
-                    fontSize: 19,
-                    lineHeight: 24,
-                    fontWeight: focused ? '600' : '400',
-                    color,
-                  }}
-                >
-                  {tab.glyph}
-                </Text>
-                {/* 选中标记：一个 3px 的余烬点。未选中时留出同样的高度，避免底栏跳动 */}
+              <View style={styles.iconSlot}>
+                {/*
+                 * color 的类型是 ColorValue（字符串、数字或 null），而 SVG 的描边只收字符串。
+                 * 非字符串时退回次要文字色：图标仍然可见，而不是变成透明或崩掉。
+                 */}
+                <TabBarIcon
+                  name={tab.icon}
+                  color={typeof color === 'string' ? color : palette.textMuted}
+                  focused={focused}
+                  size={23}
+                />
+                {/*
+                 * 选中标记：一个 3px 的圆点。
+                 *
+                 * 图标换成主色之后，这个点其实是**冗余**的——但它留着，
+                 * 因为色盲用户看不出蓝灰之差，那 3px 的实体是他们唯一的线索
+                 * （docs/02 §10）。冗余在这里是功能，不是装饰。
+                 */}
                 <View
-                  style={{
-                    marginTop: 2,
-                    width: 3,
-                    height: 3,
-                    borderRadius: 1.5,
-                    backgroundColor: focused ? palette.primary : 'transparent',
-                  }}
+                  style={[
+                    styles.emberDot,
+                    { backgroundColor: focused ? palette.primary : 'transparent' },
+                  ]}
                 />
               </View>
             ),
@@ -89,8 +137,16 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
-  icon: {
+  /** 图标 + 余烬点的竖排。固定宽度让四个 tab 的图标严格对齐 */
+  iconSlot: {
     alignItems: 'center',
     justifyContent: 'center',
+    width: 30,
+  },
+  emberDot: {
+    marginTop: 2,
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
   },
 });

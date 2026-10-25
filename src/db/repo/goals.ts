@@ -8,8 +8,10 @@
  * 「这个目标下的任务，完成了几个 / 一共几个」。
  * 存字段就得在每个可能改变的地方同步维护，一处漏改就永远对不上。
  */
+import { businessDate, DEFAULT_DAY_START_HOUR } from '../../domain/date';
 import { getDb } from '../client';
 import { newId } from '../id';
+import { getSettings } from './settings';
 
 /** goals 表的一行，字段名与数据库列一一对应 */
 export interface GoalRow {
@@ -204,14 +206,21 @@ export function computeGoalProgress(goalId: string): GoalProgress {
 /**
  * 今天的业务日。
  *
- * 这里不能 import domain/date —— 那会绕开 settings 里的 day_start_hour。
- * 但 goals 的进度只是展示用，差几个小时不影响结论，
- * 所以先用本地日历日；等 v0.3 接界面时改成从 settings 读。
+ * 全项目只有 domain/date.ts 能判断「今天」（docs/03 §4）。这里走同一个入口，
+ * 并读 settings 的 day_start_hour——绕开它就会出现
+ * 「凌晨 2 点做完的任务算昨天，但目标进度算今天」这种自相矛盾。
+ *
+ * 读 settings 失败时退回默认日界，不让一行设置把目标页整个卡住。
  */
 function todayLocalDate(): string {
-  const d = new Date();
-  const pad = (n: number) => (n < 10 ? `0${n}` : String(n));
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const now = Date.now();
+  let dayStartHour = DEFAULT_DAY_START_HOUR;
+  try {
+    dayStartHour = getSettings().day_start_hour;
+  } catch {
+    // 数据库还没就绪：用默认日界，进度差几个小时不影响这一页的结论
+  }
+  return businessDate(now, dayStartHour);
 }
 
 /** 列出目标并附带进度。目标页直接用这个 */

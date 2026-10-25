@@ -1,13 +1,17 @@
-import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useState } from 'react';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AvatarPickerSheet } from '../../src/components/AvatarPickerSheet';
 import { SettingsRow } from '../../src/components/SettingsRow';
+import { getPlayerSnapshot, type PlayerSnapshot } from '../../src/db/repo/player';
 import { getSettings } from '../../src/db/repo/settings';
+import { DEFAULT_AVATAR_ID, getAvatarOption, type AvatarId } from '../../src/domain/avatar';
 import { DIFFICULTY_LABEL_TEXT } from '../../src/domain/text-rules';
+import { chooseAvatar, type AvatarActionResult } from '../../src/services/avatar';
+import { THEME_LABEL } from '../../src/theme/tokens';
 import { useTheme } from '../../src/theme/ThemeProvider';
-import { describeSchemeSupport } from '../../src/theme/tokens';
 
 /**
  * 设置页。
@@ -15,10 +19,15 @@ import { describeSchemeSupport } from '../../src/theme/tokens';
  * 独立于底部 4 个 tab 之外，从「我的」页头右上角推上来（docs/02 §4.3）。
  * 打开后底栏消失，页面上唯一的出口是左上角的「返回」。
  *
- * 三组：外观 / 节奏 / 数据。分组沿用「账本」的排版——
+ * 四组：资料 / 外观 / 节奏 / 数据。分组沿用「账本」的排版——
  * 一个拉开的灰色小标签 + 通栏的行 + 发丝分隔线，没有卡片、没有箭头。
  *
- * 阶段 1 只有「主题」能点（进主题选择页），其余都还没接上。
+ * **「资料」组是这一版新加的，也是「我的」页让出来的那部分**：
+ * 头像、名字、那句自我介绍原先挂在「我的」页上（点头像换头像、点名字改资料）。
+ * 挪进来的理由：它们都是「把 App 调成你想要的样子」，与主题、难度同类；
+ * 而「我的」页回答的是「你走到了哪儿」。混在一起的代价是——
+ * 用户点头像或名字时，并不知道自己正在离开那一页。
+ *
  * 不能改的行要么显示真实值（readonly），要么标「之后」且不给点——
  * 不把未做的行做成「灰色可点」：点了没反应比不给点更让人困惑。
  */
@@ -45,6 +54,21 @@ interface SettingsValues {
 }
 
 /**
+ * 读玩家资料。读失败时返回 null——设置页不该因为一行数据把整个 App 卡住。
+ *
+ * 与「我的」页不同，这里不做全零兜底：设置页要显示的是「现在的名字是什么」，
+ * 一个假的「旅人」会让用户以为自己被改名了。null 时那几行显示为未知。
+ */
+function loadPlayer(): PlayerSnapshot | null {
+  try {
+    return getPlayerSnapshot();
+  } catch (err) {
+    console.warn('[Ember] 设置页读取玩家资料失败', err);
+    return null;
+  }
+}
+
+/**
  * 读设置。只在挂载时执行一次（useState 的惰性初始化），不在每次渲染时查库。
  * 读失败时退回默认值——设置页不该因为一行数据把整个 App 卡住。
  */
@@ -61,19 +85,89 @@ function loadSettingsValues(): SettingsValues {
 }
 
 export default function SettingsScreen() {
-  const { theme, palette, themeMode, reduceMotion } = useTheme();
+  const { theme, palette, reduceMotion, setReduceMotion, themeId } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
   const [values] = useState<SettingsValues>(loadSettingsValues);
 
   /**
-   * 明暗模式的中文说法。
-   * 「跟随系统」是真实状态，不是「还没做」——它在库里就是 theme_mode='system'，
-   * 而且此刻确实在生效。只是暂时还不能在界面上改。
+   * 玩家资料。
+   *
+   * 先在挂载时读一次（首帧不能空着），再用 useFocusEffect 在回到这一页时重读——
+   * 从「资料」页改完名字回来，这一行必须显示新名字。
+   * 读失败时退回 null，那几行按「还不知道」显示，而不是把整页拖垮。
    */
-  const themeModeLabel =
-    themeMode === 'system' ? '跟随系统' : themeMode === 'dark' ? '深色' : '浅色';
+  const [player, setPlayer] = useState<PlayerSnapshot | null>(loadPlayer);
+  useFocusEffect(
+    useCallback(() => {
+      setPlayer(loadPlayer());
+    }, [])
+  );
+
+  /** 换头像面板是否打开 */
+  const [pickerOpen, setPickerOpen] = useState(false);
+  /** 正在写库。期间按钮不给点，避免连点两次写两遍 */
+  const [busy, setBusy] = useState(false);
+
+  /**
+   * 所有换头像的动作都走这里，统一处理「成功 → 更新界面 / 失败 → 说一句」。
+   *
+   * 先把库写成功再更新界面：写失败时如果界面已经变了，用户会以为换好了，
+   * 下次打开却变回去。所以 handler 拿到的都是**已经落库之后**的快照。
+   */
+  const applyResult = useCallback((result: AvatarActionResult) => {
+    if (result.ok) {
+      setPlayer(result.snapshot);
+      return true;
+    }
+    Alert.alert('头像没换成', result.message);
+    return false;
+  }, []);
+
+  /**
+   * 切换「减少动效」。
+   *
+   * 这是外观走查里发现的一个真问题：`reduce_motion` 早先是一个
+   * **只读**设置——代码到处在读它（火带、飘字、勾选圈都因此停播），
+   * 但界面上没有任何地方能把它打开。也就是说这个开关存在、有效、写进了库，
+   * 用户却永远只能用它的默认值（关）。
+   *
+   * 放在这一页是有理由的：「减少动效」属于「把 App 调成你想要的样子」（外观），
+   * 与难度、日界那种业务设置不同。所以它从 `readonly` 变成 `interactive`。
+   *
+   * 写库与改内存态都交给 ThemeProvider（先写库、再改态），
+   * 写库失败时界面不会先变——与这个文件里其它写库动作同一条规矩。
+   */
+  const handleToggleMotion = useCallback(() => {
+    const next = !reduceMotion;
+    try {
+      setReduceMotion(next);
+    } catch (err) {
+      console.warn('[Ember] 保存动效设置失败', err);
+      Alert.alert('没存下来', '这个设置刚才没写进去，再试一次。');
+    }
+  }, [reduceMotion, setReduceMotion]);
+
+  /**
+   * 确认一只头像。
+   *
+   * 面板里只负责预览，写库发生在这里：滑到别处再关掉面板，库里的值不变。
+   * 成功后才关面板；失败时面板留着，用户可以直接再选一次。
+   */
+  const handleConfirmAvatar = useCallback(
+    (id: AvatarId) => {
+      if (busy) return;
+      setBusy(true);
+      try {
+        const ok = applyResult(chooseAvatar(id));
+        if (ok) setPickerOpen(false);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [applyResult, busy]
+  );
 
   /** 返回。深链直接打开设置页时没有上一页，退回「我的」而不是卡住 */
   const handleBack = () => {
@@ -94,23 +188,59 @@ export default function SettingsScreen() {
    */
   const groups: SettingsGroup[] = [
     {
+      title: '资料',
+      note: '',
+      rows: [
+        // 换头像走底部面板，不跳页：换头像是「一眼就能决定」的动作
+        {
+          label: '头像',
+          // 右侧直接写动物名（狐狸 / 猫 / …），而不是「像素动物」：
+          // 设置页每一行的右侧都是「现在是什么值」，而「像素动物」是种类，不是值
+          value: player ? getAvatarOption(player.avatarId).label : '—',
+          state: 'interactive',
+          onPress: () => setPickerOpen(true),
+        },
+        // 名字与自我介绍在同一张表单里，所以同一个入口、同一页
+        {
+          label: '名字',
+          value: player?.displayName ?? '—',
+          state: 'interactive',
+          onPress: () => router.push('/profile/edit'),
+        },
+        {
+          label: '一句自我介绍',
+          // 没写时显示「还没写」而不是空白：空白看起来像这一行坏了
+          value: player ? (player.bio ? player.bio : '还没写') : '—',
+          state: 'interactive',
+          onPress: () => router.push('/profile/edit'),
+        },
+      ],
+    },
+    {
       title: '外观',
       note: '',
       rows: [
+        /*
+         * 「主题」这一行在阶段 4 回来了（D40）。
+         *
+         * 它在阶段 1 被删过（D27）：那时只有一套白底，一个只有一项的单选列表
+         * 不是选择，是一个占位符。阶段 4 把另外三套做回来了，这一行重新有了意义。
+         *
+         * 「深浅」仍然没有：四套主题各自包含了自己的深浅（白 / 晨光是浅的，
+         * 夜航是深的），再叠一层「跟随系统」会出现没有设计过的组合。
+         */
         {
           label: '主题',
-          value: theme.name,
+          value: THEME_LABEL[themeId].name,
           state: 'interactive',
           onPress: () => router.push('/settings/theme'),
         },
-        // 晨光没有暗色版：这一行写「只有亮的」，而不是一个看起来能切的模式。
-        // 判断来自 tokens 层的 describeSchemeSupport，页面里不写死主题 id
         {
-          label: '深浅',
-          value: describeSchemeSupport(theme).canToggle ? themeModeLabel : '只有亮的',
-          state: 'readonly',
+          label: '动效',
+          value: reduceMotion ? '已减弱' : '完整',
+          state: 'interactive',
+          onPress: handleToggleMotion,
         },
-        { label: '动效', value: reduceMotion ? '已减弱' : '完整', state: 'readonly' },
       ],
     },
     {
@@ -119,141 +249,167 @@ export default function SettingsScreen() {
       rows: [
         { label: '难度', value: values.difficulty, state: 'readonly' },
         { label: '日界', value: `凌晨 ${values.dayStartHour} 点`, state: 'readonly' },
-        { label: '提醒', state: 'later' },
+        { label: '提醒', value: '每个任务各设各的', state: 'interactive', onPress: () => router.push('/settings/reminders') },
       ],
     },
     {
       title: '数据',
-      note: '备份还没做。在那之前，卸载会丢掉全部记录。',
+      note: '记录只在这台手机上。卸载、换机、手机坏掉，都会跟着没。',
       rows: [
-        { label: '备份', state: 'later' },
-        { label: '导入', state: 'later' },
+        /*
+         * 导出与导入在同一页，不拆成两行。
+         *
+         * 它们是同一件事的两端：一个把数据拿出去，一个把数据拿回来。
+         * 拆成两行会让人以为导入是另一个功能，而它其实就在同一页的下半部分。
+         */
+        {
+          label: '备份与导入',
+          value: '导出 JSON / 从文件恢复',
+          state: 'interactive',
+          onPress: () => router.push('/settings/backup'),
+        },
+        // 隐私说明（阶段 6 第 5 条）。它属于「数据」，不是「关于」
+        {
+          label: '你的数据在哪儿',
+          value: '没有网络权限',
+          state: 'interactive',
+          onPress: () => router.push('/privacy'),
+        },
       ],
     },
   ];
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: palette.background }}
-      contentContainerStyle={{
-        paddingTop: insets.top + theme.spacing.sm,
-        paddingBottom: insets.bottom + theme.spacing.xxl,
-      }}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* 返回。纯文字，不用箭头：箭头是图标库的语言，这一页用字 */}
-      <View style={{ paddingHorizontal: theme.spacing.pageX }}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="返回我的"
-          onPress={handleBack}
-          style={({ pressed }) => ({
-            // 触控目标 44×44（docs/02 §9）。两个字只有 30 宽，所以补一个最小宽度
-            minHeight: theme.touchTarget,
-            minWidth: theme.touchTarget,
-            justifyContent: 'center',
-            alignSelf: 'flex-start',
-            opacity: pressed ? 0.55 : 1,
-          })}
-        >
+    <View style={{ flex: 1 }}>
+      {/*
+       * 换头像面板。放在 ScrollView 之外：它在 Modal 里，和滚动无关。
+       * 行为：左右走、只看不写、点「用这一只」才落库。
+       */}
+        <AvatarPickerSheet
+          visible={pickerOpen}
+          busy={busy}
+          currentId={player?.avatarId ?? DEFAULT_AVATAR_ID}
+          onConfirm={handleConfirmAvatar}
+          onClose={() => setPickerOpen(false)}
+        />
+
+      <ScrollView
+        style={{ flex: 1, backgroundColor: palette.background }}
+        contentContainerStyle={{
+          paddingTop: insets.top + theme.spacing.sm,
+          paddingBottom: insets.bottom + theme.spacing.xxl,
+        }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* 返回。纯文字，不用箭头：箭头是图标库的语言，这一页用字 */}
+        <View style={{ paddingHorizontal: theme.spacing.pageX }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="返回我的"
+            onPress={handleBack}
+            style={({ pressed }) => ({
+              // 触控目标 44×44（docs/02 §9）。两个字只有 30 宽，所以补一个最小宽度
+              minHeight: theme.touchTarget,
+              minWidth: theme.touchTarget,
+              justifyContent: 'center',
+              alignSelf: 'flex-start',
+              opacity: pressed ? 0.55 : 1,
+            })}
+          >
+            <Text
+              style={{
+                fontSize: theme.typography.size.label,
+                lineHeight: theme.typography.lineHeight.label,
+                color: palette.textMuted,
+                fontFamily: theme.typography.fontFamily.body,
+              }}
+            >
+              返回
+            </Text>
+          </Pressable>
+
           <Text
             style={{
-              fontSize: theme.typography.size.label,
-              lineHeight: theme.typography.lineHeight.label,
-              color: palette.textMuted,
-              fontFamily: theme.typography.fontFamily.body,
+              // 与「返回」拉开到 md：两者同为左对齐，靠得太近会读成一个两行标题
+              marginTop: theme.spacing.md,
+              fontSize: theme.typography.size.title,
+              lineHeight: theme.typography.lineHeight.title,
+              fontWeight: theme.typography.weight.semibold,
+              color: palette.text,
+              fontFamily: theme.typography.fontFamily.title,
             }}
           >
-            返回
+            设置
           </Text>
-        </Pressable>
+        </View>
 
-        <Text
-          style={{
-            // 与「返回」拉开到 md：两者同为左对齐，靠得太近会读成一个两行标题
-            marginTop: theme.spacing.md,
-            fontSize: theme.typography.size.title,
-            lineHeight: theme.typography.lineHeight.title,
-            fontWeight: theme.typography.weight.semibold,
-            color: palette.text,
-            fontFamily: theme.typography.fontFamily.title,
-          }}
-        >
-          设置
-        </Text>
-      </View>
+        {groups.map((group) => (
+          <View
+            key={group.title}
+            style={{
+              marginTop: theme.spacing.xl,
+              paddingHorizontal: theme.spacing.pageX,
+            }}
+          >
+            <Text
+              style={{
+                marginBottom: theme.spacing.xs,
+                fontSize: theme.typography.size.caption,
+                lineHeight: theme.typography.lineHeight.caption,
+                color: palette.textMuted,
+                fontFamily: theme.typography.fontFamily.body,
+              }}
+            >
+              {group.title}
+            </Text>
 
-      {groups.map((group) => (
+            {group.note ? (
+              <Text
+                style={{
+                  marginBottom: theme.spacing.sm,
+                  fontSize: theme.typography.size.caption,
+                  lineHeight: theme.typography.lineHeight.body,
+                  color: palette.textMuted,
+                  fontFamily: theme.typography.fontFamily.body,
+                }}
+              >
+                {group.note}
+              </Text>
+            ) : null}
+
+            <View>
+              {group.rows.map((row) => (
+                <SettingsRow
+                  key={row.label}
+                  label={row.label}
+                  value={row.value}
+                  state={row.state}
+                  onPress={row.onPress}
+                />
+              ))}
+            </View>
+          </View>
+        ))}
+
+      {/* 隐私说明。这不是法律文本，是一句实话 */}
         <View
-          key={group.title}
           style={{
-            marginTop: theme.spacing.xl,
+            marginTop: theme.spacing.xxl,
             paddingHorizontal: theme.spacing.pageX,
           }}
         >
           <Text
             style={{
-              marginBottom: theme.spacing.xs,
               fontSize: theme.typography.size.caption,
-              lineHeight: theme.typography.lineHeight.caption,
-              letterSpacing: 1,
+              lineHeight: theme.typography.lineHeight.body,
               color: palette.textMuted,
               fontFamily: theme.typography.fontFamily.body,
             }}
           >
-            {group.title}
+            这个 App 没有网络权限。没有账号，没有服务器，数据只在这台手机上。
           </Text>
-
-          {group.note ? (
-            <Text
-              style={{
-                marginBottom: theme.spacing.sm,
-                fontSize: theme.typography.size.caption,
-                lineHeight: theme.typography.lineHeight.body,
-                color: palette.textMuted,
-                fontFamily: theme.typography.fontFamily.body,
-              }}
-            >
-              {group.note}
-            </Text>
-          ) : null}
-
-          <View style={{ borderTopWidth: 1, borderTopColor: palette.border }}>
-            {group.rows.map((row, index) => (
-              <SettingsRow
-                key={row.label}
-                label={row.label}
-                value={row.value}
-                state={row.state}
-                onPress={row.onPress}
-                divider={index > 0}
-              />
-            ))}
-          </View>
         </View>
-      ))}
-
-      {/* 隐私说明。这不是法律文本，是一句实话 */}
-      <View
-        style={{
-          marginTop: theme.spacing.xxl,
-          paddingHorizontal: theme.spacing.pageX,
-          paddingTop: theme.spacing.lg,
-          borderTopWidth: 1,
-          borderTopColor: palette.border,
-        }}
-      >
-        <Text
-          style={{
-            fontSize: theme.typography.size.caption,
-            lineHeight: theme.typography.lineHeight.body,
-            color: palette.textMuted,
-            fontFamily: theme.typography.fontFamily.body,
-          }}
-        >
-          这个 App 没有网络权限。没有账号，没有服务器，数据只在这台手机上。
-        </Text>
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }

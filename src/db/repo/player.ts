@@ -15,22 +15,19 @@ import {
   growAttribute,
   type AttributeKey,
 } from '../../domain/balance';
+import { normalizeAvatarId, type AvatarId } from '../../domain/avatar';
 import { getDb } from '../client';
 import { ATTRIBUTE_KEYS } from '../schema';
 
 /** 单项属性点上限（转出给调用方用，值来自 domain/balance） */
 export const ATTR_POINTS_CAP = ATTR_POINTS_MAX;
 
-/**
- * 头像重掷计数的回绕点。
- * 取 10000：足够换到腻，又不至于让这个数在导出文件里长得难看。
- */
-export const MAX_AVATAR_SEED = 10000;
-
 /** player 表的一行，字段名与数据库列一一对应 */
 export interface PlayerRow {
   id: string;
   display_name: string;
+  /** 一句自我介绍。NULL = 从来没写过，'' = 写过又清空了 */
+  bio: string | null;
   level: number;
   xp_total: number;
   xp_in_level: number;
@@ -47,9 +44,13 @@ export interface PlayerRow {
   attr_bond_pts: number;
   ember: number;
   material: number;
+  /** 精炼材料：3 个普通材料合成 1 个。阶段 4 第 6 条 */
+  refined_material: number;
+  /** 最近一次发过月度活动奖励的月份键。NULL = 从来没发过 */
+  last_event_reward_month: string | null;
   onboarding_done: number;
-  /** 头像的重掷计数：图案由 (id, avatar_seed) 算出来，本身不存 */
-  avatar_seed: number;
+  /** 挑中的头像 id（'fox' / 'cat' / …）。长相本身是代码里的常量，库里只存这一个词 */
+  avatar_id: string;
   created_at: number;
   updated_at: number;
 }
@@ -72,6 +73,13 @@ export type AttributeMap = Record<AttributeKey, AttributeProgress>;
 export interface PlayerSnapshot {
   id: string;
   displayName: string;
+  /**
+   * 一句自我介绍。null 表示没写过。
+   *
+   * 界面不区分 null 与 ''：两者都显示成「还没写」。
+   * 但导出的 JSON 要区分，所以类型上保留 null 而不是一律折叠成 ''。
+   */
+  bio: string | null;
   level: number;
   xpTotal: number;
   xpInLevel: number;
@@ -80,9 +88,13 @@ export interface PlayerSnapshot {
   attributes: AttributeMap;
   ember: number;
   material: number;
+  /** 精炼材料。与 material 一样只是一个数字，没有品质/绑定 */
+  refinedMaterial: number;
+  /** 最近一次发过月度活动奖励的月份键 YYYY-MM。null = 从来没发过 */
+  lastEventRewardMonth: string | null;
   onboardingDone: boolean;
-  /** 头像重掷计数。界面把它传给 buildAvatar */
-  avatarSeed: number;
+  /** 挑中的头像 id。界面把它传给 PlayerAvatar */
+  avatarId: AvatarId;
   createdAt: number;
   updatedAt: number;
 }
@@ -90,27 +102,37 @@ export interface PlayerSnapshot {
 /** 可以直接覆盖的玩家字段（升级结算、改名等场景） */
 export interface PlayerPatch {
   displayName?: string;
+  /** 传 null 表示「清空」，传 '' 也一样；两者的区别只在导出时可读性上 */
+  bio?: string | null;
   level?: number;
   xpTotal?: number;
   xpInLevel?: number;
   highestLevel?: number;
   ember?: number;
   material?: number;
+  /** 精炼材料。合成与商店都会改它 */
+  refinedMaterial?: number;
+  /** 记录「哪个月的月度奖励已经发过了」。只由 narrative 服务写 */
+  lastEventRewardMonth?: string | null;
   onboardingDone?: boolean;
-  avatarSeed?: number;
+  /** 换头像。只存一个 id，长相是代码里的常量 */
+  avatarId?: AvatarId;
 }
 
 /** 驼峰字段 → 数据库列白名单 */
 const PLAYER_COLUMN_MAP: Record<keyof PlayerPatch, string> = {
   displayName: 'display_name',
+  bio: 'bio',
   level: 'level',
   xpTotal: 'xp_total',
   xpInLevel: 'xp_in_level',
   highestLevel: 'highest_level',
   ember: 'ember',
   material: 'material',
+  refinedMaterial: 'refined_material',
+  lastEventRewardMonth: 'last_event_reward_month',
   onboardingDone: 'onboarding_done',
-  avatarSeed: 'avatar_seed',
+  avatarId: 'avatar_id',
 };
 
 /** 属性键 → 数据库列名后缀，例如 body → attr_body_xp / attr_body_pts */
@@ -125,10 +147,11 @@ function attrPtsColumn(attr: AttributeKey): string {
 /** 读取玩家快照。种子数据保证一定存在。 */
 export function getPlayer(): PlayerRow {
   const row = getDb().getFirstSync<PlayerRow>(
-    `SELECT id, display_name, level, xp_total, xp_in_level, highest_level,
+    `SELECT id, display_name, bio, level, xp_total, xp_in_level, highest_level,
             attr_body_xp, attr_mind_xp, attr_order_xp, attr_spirit_xp, attr_bond_xp,
             attr_body_pts, attr_mind_pts, attr_order_pts, attr_spirit_pts, attr_bond_pts,
-            ember, material, onboarding_done, avatar_seed, created_at, updated_at
+            ember, material, refined_material, last_event_reward_month,
+            onboarding_done, avatar_id, created_at, updated_at
        FROM player
       LIMIT 1`
   );
@@ -157,6 +180,7 @@ export function getPlayerSnapshot(): PlayerSnapshot {
   return {
     id: row.id,
     displayName: row.display_name,
+    bio: row.bio,
     level: row.level,
     xpTotal: row.xp_total,
     xpInLevel: row.xp_in_level,
@@ -164,8 +188,12 @@ export function getPlayerSnapshot(): PlayerSnapshot {
     attributes: attributesFromRow(row),
     ember: row.ember,
     material: row.material,
+    refinedMaterial: row.refined_material,
+    lastEventRewardMonth: row.last_event_reward_month,
     onboardingDone: row.onboarding_done === 1,
-    avatarSeed: row.avatar_seed,
+    // 库里可能存着一个不认识的 id（手改过、或来自别的版本）。
+    // 在这里就规范化成七个之一，界面拿到的永远是能画出来的东西。
+    avatarId: normalizeAvatarId(row.avatar_id),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -210,7 +238,11 @@ export function getAttribute(attr: AttributeKey): AttributeProgress {
  */
 export function updatePlayer(patch: PlayerPatch): void {
   const sets: string[] = [];
-  const values: Array<string | number> = [];
+  // null 是合法值：bio = null 表示「清空自我介绍」，不是「不改这个字段」。
+  // 所以这里的判断必须是 `=== undefined`，不能写成 `if (!value)`——
+  // 后者会把 null 悄悄跳过，用户清空了简介，界面看起来没变，重开却又变回去。
+  // （avatar_id 不会有 null：它是一枚举 id，不是可空字段。）
+  const values: Array<string | number | null> = [];
 
   for (const key of Object.keys(patch) as Array<keyof PlayerPatch>) {
     const column = PLAYER_COLUMN_MAP[key];
@@ -233,7 +265,14 @@ export function updatePlayer(patch: PlayerPatch): void {
   ]);
 }
 
-/** 改名 */
+/**
+ * 改名字。
+ *
+ * 只做「非空」这一道检查，**不在这里做长度与禁用词校验**：
+ * 那套规则在 domain/profile.ts，需要同时服务输入框的实时提示与保存前的校验。
+ * 写两遍规则就一定会有一天只改了一处。
+ * 调用方请走 services/profile.ts 的 saveProfile()，它会把两边串起来。
+ */
 export function updateDisplayName(name: string): void {
   const trimmed = name.trim();
   if (trimmed.length === 0) {
@@ -243,30 +282,41 @@ export function updateDisplayName(name: string): void {
 }
 
 /**
- * 换一个头像：把重掷计数 +1，返回新的计数。
+ * 改自我介绍。
  *
- * 为什么是 +1 而不是重新随机：图案完全由 (player.id, avatar_seed) 决定，
- * 计数存进库以后，导入、杀进程重开、换设备都会得到同一个头像。
- * 真正的随机数只会在导出导入之间丢掉「你选的其实是哪一个」。
- *
- * 上限 MAX_AVATAR_SEED 只是一个防溢出的上限，取不到也没关系。
+ * 传空字符串表示清空——会写成 NULL 而不是 ''，
+ * 因为「从来没写过」和「写过又删了」在这一版里是同一件事，
+ * 统一成 NULL 少一种状态要判断。
  */
-export function rerollAvatar(): number {
-  const row = getPlayer();
-  const next = (row.avatar_seed + 1) % MAX_AVATAR_SEED;
-  updatePlayer({ avatarSeed: next });
+export function updateBio(bio: string): void {
+  const trimmed = bio.trim();
+  updatePlayer({ bio: trimmed.length === 0 ? null : trimmed });
+}
+
+/**
+ * 换头像：存下挑中的那一只，返回写进去的 id。
+ *
+ * 只存一个词（'fox' / 'cat' / …），长相是 domain/avatar.ts 里的常量。
+ * 所以导入导出只多一个字符串，且「同一个 id = 同一个头像」在任何设备上成立。
+ *
+ * 传进来的值先规范化：不认识的 id 写成默认的狐狸，而不是把非法值写进库——
+ * 否则下次读出来还得再规范化一次，而那两个地方迟早会不一致。
+ */
+export function updateAvatar(id: string): AvatarId {
+  const next = normalizeAvatarId(id);
+  updatePlayer({ avatarId: next });
   return next;
 }
 
-/** 读取头像重掷计数。界面首帧要它，单独给一个轻量函数，避免整行快照 */
-export function getAvatarSeed(): number {
-  const row = getDb().getFirstSync<{ avatar_seed: number }>(
-    'SELECT avatar_seed FROM player LIMIT 1'
+/** 读取当前头像 id。界面首帧要它，单独给一个轻量函数，避免整行快照 */
+export function getAvatarId(): AvatarId {
+  const row = getDb().getFirstSync<{ avatar_id: string }>(
+    'SELECT avatar_id FROM player LIMIT 1'
   );
   if (!row) {
     throw new Error('player 行不存在，数据库可能没有执行种子数据');
   }
-  return row.avatar_seed;
+  return normalizeAvatarId(row.avatar_id);
 }
 
 /** 标记引导已完成 */

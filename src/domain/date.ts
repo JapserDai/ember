@@ -134,6 +134,26 @@ export function addDays(key: string, n: number): string {
   return `${t.getUTCFullYear()}-${pad2(t.getUTCMonth() + 1)}-${pad2(t.getUTCDate())}`;
 }
 
+/**
+ * 业务日加 n 个月。
+ *
+ * 关键在月末：1 月 31 日加一个月没有 2 月 31 日，这里钳到该月最后一天（2 月 28/29 日）。
+ * 不钳的话 Date 会自动滚到 3 月 3 日——「一个月后」变成一个半月后，
+ * 而用户看到的是一个说不通的日期。
+ *
+ * 用 UTC 构造（同 addDays），避免本地时区与夏令时干扰。
+ */
+export function addMonths(key: string, n: number): string {
+  const [y, m, d] = key.split('-').map(Number);
+  // 目标月份（0 基）。先按整数月推进，再钳日
+  const targetMonthIndex = (m || 1) - 1 + n;
+  const targetYear = y + Math.floor(targetMonthIndex / 12);
+  const targetMonth = ((targetMonthIndex % 12) + 12) % 12;
+  const lastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  const day = Math.min(d || 1, lastDay);
+  return `${targetYear}-${pad2(targetMonth + 1)}-${pad2(day)}`;
+}
+
 /** 日期键转 UTC 日期序数（毫秒）。只用于做差，不参与业务判断 */
 function utcOrdinal(key: string): number {
   const [y, m, d] = key.split('-').map(Number);

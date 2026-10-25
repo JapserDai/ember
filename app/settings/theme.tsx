@@ -3,172 +3,63 @@ import React, { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Card } from '../../src/components/Card';
+import { PALETTES, THEME_LABEL, type ThemeId } from '../../src/theme/tokens';
 import { useTheme } from '../../src/theme/ThemeProvider';
-import {
-  describeSchemeSupport,
-  themeList,
-  type Palette,
-  type Theme,
-  type ThemeId,
-} from '../../src/theme/tokens';
 
 /**
- * 主题选择页（从「设置 → 外观 → 主题」进入，docs/02 §4.3）。
+ * 主题选择（设置 → 外观 → 主题）。
  *
- * 四套主题竖排。每一条是三行信息：
- *   名字 → 一句话气质 → 一小块当前配色
- * 选中的那一条左侧有一条主色竖线，**不用对勾**：对勾是表单语言，
- * 这里是「你现在住在哪个房间里」，一条标在门边的记号更合适。
+ * ---- 为什么这一页在阶段 4 才出现 ----
  *
- * 选晨光时它下面多一句「这套只有亮的」——这是它的设计主张，不是缺一版暗色。
+ * 阶段 1 把它删了（D27）：那时只有一套白底，一个只有一项的单选列表
+ * 不是选择，是一个占位符。阶段 4 把另外三套做回来（D40），
+ * 这一页才重新有了意义。
  *
- * 写库失败时在页底显示一句人话，且**界面不切换**：
- * ThemeProvider 是先写库再改内存态，抛错时主题保持不变。
+ * ---- 为什么每一项是一张预览卡，而不是一行文字 ----
+ *
+ * 换主题是一个**看**的决定。一行「夜航」两个字说不出它长什么样，
+ * 用户只能靠猜，或者选完再退回去看——那是三次导航。
+ * 所以每一项都画出它自己的底、卡片、正文与主色，一眼就是它。
+ *
+ * 预览卡用的是**目标主题自己的色板**，不是当前主题的。这是这一页
+ * 唯一一处「不读当前 theme」的地方，也是它必须做的事。
+ *
+ * ---- 为什么没有「跟随系统深浅」----
+ *
+ * 四套主题里已经各自包含了它自己的深浅（白 / 晨光是浅的，夜航是深的，
+ * 苔原是浅的但低饱和）。再叠一层「跟随系统」会出现「白 + 系统深色」
+ * 这种没有设计过的组合。`settings.theme_mode` 列仍然留着（已发布，不能删），
+ * 但这一版不读也不写它。
  */
-
-/** 一条主题的配色小样：背景、主色、强调色，三块并排 */
-function PaletteSwatch({ palette, size = 18 }: { palette: Palette; size?: number }) {
-  return (
-    <View style={{ flexDirection: 'row', gap: 3 }}>
-      {[palette.background, palette.primary, palette.accent].map((color, index) => (
-        <View
-          key={index}
-          style={{
-            width: size,
-            height: size,
-            borderRadius: 3,
-            backgroundColor: color,
-            borderWidth: 1,
-            // 小样里的背景色与页面底色可能几乎一样，加一层发丝描边才看得见边界
-            borderColor: 'rgba(128,128,128,0.35)',
-          }}
-        />
-      ))}
-    </View>
-  );
-}
-
-/** 一条主题 */
-function ThemeOption({
-  item,
-  selected,
-  onSelect,
-}: {
-  item: Theme;
-  selected: boolean;
-  onSelect: (id: ThemeId) => void;
-}) {
-  const { theme, palette } = useTheme();
-  // 小样展示这套主题「自己的样子」：夜航的主场是暗色，就展示暗色板
-  const previewPalette = item.defaultScheme === 'dark' ? item.dark : item.light;
-  // 「这套只有亮的」这句由就 token 层给出，不在页面里写死主题 id
-  const schemeSupport = describeSchemeSupport(item);
-
-  return (
-    <Pressable
-      accessibilityRole="radio"
-      accessibilityState={{ selected }}
-      accessibilityLabel={`${item.name}。${item.tagline}${schemeSupport.note ? `。${schemeSupport.note}` : ''}`}
-      onPress={() => onSelect(item.id)}
-      style={({ pressed }) => ({
-        flexDirection: 'row',
-        alignItems: 'stretch',
-        minHeight: theme.touchTarget,
-        paddingVertical: theme.spacing.md,
-        paddingLeft: theme.spacing.md,
-        borderTopWidth: 1,
-        borderTopColor: palette.border,
-        opacity: pressed ? 0.55 : 1,
-      })}
-    >
-      {/*
-       * 选中标记：一条主色竖线。
-       * 未选中时占同样宽度的透明条——不占位的话，选中时文字会整体右移一格，
-       * 点一下所有字都跳一下，比没有反馈更让人分心。
-       */}
-      <View
-        style={{
-          width: 3,
-          borderRadius: 2,
-          marginRight: theme.spacing.md,
-          backgroundColor: selected ? palette.primary : 'transparent',
-        }}
-      />
-
-      <View style={{ flex: 1 }}>
-        <Text
-          style={{
-            fontSize: theme.typography.size.body,
-            lineHeight: theme.typography.lineHeight.body,
-            fontWeight: selected
-              ? theme.typography.weight.semibold
-              : theme.typography.weight.regular,
-            color: selected ? palette.text : palette.textMuted,
-            fontFamily: theme.typography.fontFamily.body,
-          }}
-        >
-          {item.name}
-        </Text>
-        <Text
-          style={{
-            marginTop: 2,
-            fontSize: theme.typography.size.caption,
-            lineHeight: theme.typography.lineHeight.caption,
-            color: palette.textMuted,
-            fontFamily: theme.typography.fontFamily.body,
-          }}
-        >
-          {item.tagline}
-        </Text>
-        {schemeSupport.note ? (
-          <Text
-            style={{
-              marginTop: 2,
-              fontSize: theme.typography.size.caption,
-              lineHeight: theme.typography.lineHeight.caption,
-              color: palette.textMuted,
-              fontFamily: theme.typography.fontFamily.body,
-            }}
-          >
-            {schemeSupport.note}
-          </Text>
-        ) : null}
-      </View>
-
-      <View style={{ marginLeft: theme.spacing.md, justifyContent: 'center' }}>
-        <PaletteSwatch palette={previewPalette} />
-      </View>
-    </Pressable>
-  );
-}
-
 export default function ThemeScreen() {
   const { theme, palette, themeId, setThemeId } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  /** 写库失败时的提示。为 null 表示一切正常 */
-  const [errorText, setErrorText] = useState<string | null>(null);
-
-  const handleSelect = (id: ThemeId) => {
-    if (id === themeId) return;
-    try {
-      // 先写库；写失败会抛错，下面的两个 setState 都不会执行，界面保持原样
-      setThemeId(id);
-      setErrorText(null);
-    } catch (err) {
-      console.warn('[Ember] 切换主题失败', err);
-      setErrorText('没能保存。主题还是原来那套，稍后再试一次。');
-    }
-  };
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleBack = () => {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace('/settings');
+    if (router.canGoBack()) router.back();
+    else router.replace('/settings');
+  };
+
+  const choose = (id: ThemeId) => {
+    if (busy || id === themeId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setThemeId(id);
+    } catch (err) {
+      console.warn('[Ember] 换主题失败', err);
+      setError('刚才没换成，再试一次。');
+    } finally {
+      setBusy(false);
     }
   };
+
+  const ids: ThemeId[] = ['furnace', 'nightvoyage', 'tundra', 'daybreak'];
 
   return (
     <ScrollView
@@ -206,7 +97,6 @@ export default function ThemeScreen() {
 
         <Text
           style={{
-            // 与「返回」拉开到 md：同为左对齐，靠太近会读成一个两行标题
             marginTop: theme.spacing.md,
             fontSize: theme.typography.size.title,
             lineHeight: theme.typography.lineHeight.title,
@@ -220,49 +110,212 @@ export default function ThemeScreen() {
 
         <Text
           style={{
-            marginTop: theme.spacing.sm,
+            marginTop: theme.spacing.xs,
+            fontSize: theme.typography.size.body,
+            lineHeight: theme.typography.lineHeight.body,
+            color: palette.textMuted,
+            fontFamily: theme.typography.fontFamily.body,
+          }}
+        >
+          四套都只有一种长相，换的只是颜色。
+        </Text>
+      </View>
+
+      {error ? (
+        <View style={{ marginTop: theme.spacing.md, paddingHorizontal: theme.spacing.pageX }}>
+          <Text
+            accessibilityRole="alert"
+            style={{
+              fontSize: theme.typography.size.caption,
+              lineHeight: theme.typography.lineHeight.body,
+              color: palette.danger,
+              fontFamily: theme.typography.fontFamily.body,
+            }}
+          >
+            {error}
+          </Text>
+        </View>
+      ) : null}
+
+      <View style={{ marginTop: theme.spacing.xl, paddingHorizontal: theme.spacing.pageX }}>
+        {ids.map((id) => (
+          <ThemeCard
+            key={id}
+            id={id}
+            selected={id === themeId}
+            disabled={busy}
+            onPress={() => choose(id)}
+          />
+        ))}
+      </View>
+
+      <View style={{ marginTop: theme.spacing.xl, paddingHorizontal: theme.spacing.pageX }}>
+        <Text
+          style={{
             fontSize: theme.typography.size.caption,
             lineHeight: theme.typography.lineHeight.body,
             color: palette.textMuted,
             fontFamily: theme.typography.fontFamily.body,
           }}
         >
-          换的是语气，不是功能。每一套下面的颜色是它自己的样子。
+          换主题只改颜色，不动任何记录。
         </Text>
       </View>
+    </ScrollView>
+  );
+}
 
-      {/* 主题列表。整组是一个单选组，读屏会读出「已选中」 */}
-      <View
-        accessibilityRole="radiogroup"
-        style={{ marginTop: theme.spacing.lg, paddingHorizontal: theme.spacing.pageX }}
+/**
+ * 一张主题预览卡。
+ *
+ * 用**目标主题自己的**色板画一张小样：底、卡片、一行正文、一个主色圆点。
+ * 四样东西就够看出这套主题是什么气质，而再多画就成了另一页的缩略图。
+ */
+function ThemeCard({
+  id,
+  selected,
+  disabled,
+  onPress,
+}: {
+  id: ThemeId;
+  selected: boolean;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const { theme, palette } = useTheme();
+  // 预览要用目标主题的色板，所以这里不能只靠 useTheme 的 palette
+  const preview = PALETTES[id];
+  const meta = THEME_LABEL[id];
+
+  return (
+    <Card style={{ marginBottom: theme.spacing.cardGap }} padding={0}>
+      <Pressable
+        accessibilityRole="radio"
+        accessibilityState={{ selected, disabled }}
+        accessibilityLabel={`${meta.name}。${meta.note}`}
+        onPress={onPress}
+        disabled={disabled}
+        style={({ pressed }) => ({
+          opacity: disabled ? 0.5 : pressed ? 0.55 : 1,
+        })}
       >
-        <View style={{ borderBottomWidth: 1, borderBottomColor: palette.border }}>
-          {themeList.map((item) => (
-            <ThemeOption
-              key={item.id}
-              item={item}
-              selected={item.id === themeId}
-              onSelect={handleSelect}
-            />
-          ))}
-        </View>
-      </View>
-
-      {errorText ? (
-        <Text
-          accessibilityRole="alert"
+        {/* 预览：目标主题的底 + 卡片 + 文字 + 主色点 */}
+        <View
           style={{
-            marginTop: theme.spacing.lg,
-            paddingHorizontal: theme.spacing.pageX,
-            fontSize: theme.typography.size.caption,
-            lineHeight: theme.typography.lineHeight.body,
-            color: palette.danger,
-            fontFamily: theme.typography.fontFamily.body,
+            backgroundColor: preview.background,
+            paddingVertical: theme.spacing.lg,
+            paddingHorizontal: theme.spacing.cardPadding,
+            borderTopLeftRadius: theme.radius.card,
+            borderTopRightRadius: theme.radius.card,
           }}
         >
-          {errorText}
-        </Text>
-      ) : null}
-    </ScrollView>
+          <View
+            style={{
+              backgroundColor: preview.surface,
+              borderRadius: theme.radius.card,
+              padding: theme.spacing.sm,
+              flexDirection: 'row',
+              alignItems: 'center',
+            }}
+          >
+            {/* 一个空心圈 + 一个实心圈：这套主题的「未完成 / 完成」 */}
+            <View
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: 8,
+                borderWidth: 1.5,
+                borderColor: preview.secondary,
+                marginRight: theme.spacing.sm,
+              }}
+            />
+            <View
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: 8,
+                backgroundColor: preview.primary,
+                marginRight: theme.spacing.sm,
+              }}
+            />
+            <Text
+              style={{
+                flex: 1,
+                fontSize: theme.typography.size.body,
+                lineHeight: theme.typography.lineHeight.body,
+                color: preview.text,
+                fontFamily: theme.typography.fontFamily.body,
+              }}
+            >
+              今天
+            </Text>
+            <Text
+              style={{
+                fontSize: theme.typography.size.caption,
+                lineHeight: theme.typography.lineHeight.caption,
+                color: preview.textMuted,
+                fontFamily: theme.typography.fontFamily.body,
+              }}
+            >
+              3 / 5
+            </Text>
+          </View>
+        </View>
+
+        {/* 名字与说明 + 选中标记 */}
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingVertical: theme.spacing.md,
+            paddingHorizontal: theme.spacing.cardPadding,
+          }}
+        >
+          <View style={{ flexShrink: 1 }}>
+            <Text
+              style={{
+                fontSize: theme.typography.size.body,
+                lineHeight: theme.typography.lineHeight.body,
+                fontWeight: selected
+                  ? theme.typography.weight.semibold
+                  : theme.typography.weight.regular,
+                color: palette.text,
+                fontFamily: theme.typography.fontFamily.body,
+              }}
+            >
+              {meta.name}
+            </Text>
+            <Text
+              style={{
+                marginTop: 2,
+                fontSize: theme.typography.size.caption,
+                lineHeight: theme.typography.lineHeight.caption,
+                color: palette.textMuted,
+                fontFamily: theme.typography.fontFamily.body,
+              }}
+            >
+              {meta.note}
+            </Text>
+          </View>
+
+          {/* 选中态：一个词，不用勾图标（这一版没有图标库） */}
+          {selected ? (
+            <Text
+              style={{
+                marginLeft: theme.spacing.md,
+                fontSize: theme.typography.size.caption,
+                lineHeight: theme.typography.lineHeight.caption,
+                fontWeight: theme.typography.weight.medium,
+                color: palette.primary,
+                fontFamily: theme.typography.fontFamily.body,
+              }}
+            >
+              用着
+            </Text>
+          ) : null}
+        </View>
+      </Pressable>
+    </Card>
   );
 }

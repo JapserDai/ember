@@ -473,6 +473,33 @@ export function countCheckinsForTaskInRange(
   return row?.n ?? 0;
 }
 
+/** 一条「某任务在某业务日有有效记录」的去重事实 */
+export interface CheckinDatePair {
+  taskId: string;
+  localDate: string;
+}
+
+/**
+ * 取出截至某业务日的全部「有效打卡 (任务, 日期)」去重结果。
+ *
+ * 连胜、本周已做几次、今天做了什么，全都从这一份数据现算（见 DECISIONS D21）：
+ * 一条 SQL 取回来，在 JS 里分组，比「每条习惯查一次库」少几十次往返。
+ *
+ * 为什么带 `DISTINCT`：同一任务同一天理论上只有一条 active 记录
+ * （uq_checkin_active 唯一索引保证），但撤销重记会留下多条历史行，
+ * 这里只取 status='active' 的，去重只是第二道保险。
+ */
+export function listActiveCheckinDates(upToDate: string): CheckinDatePair[] {
+  const rows = getDb().getAllSync<{ task_id: string; local_date: string }>(
+    `SELECT DISTINCT task_id, local_date
+       FROM checkins
+      WHERE status = 'active' AND local_date <= ?
+      ORDER BY local_date ASC`,
+    [upToDate]
+  );
+  return rows.map((row) => ({ taskId: row.task_id, localDate: row.local_date }));
+}
+
 /** 某个任务累计有效打卡次数（回忆页与统计用） */
 export function countCheckinsForTask(taskId: string): number {
   const row = getDb().getFirstSync<{ n: number }>(

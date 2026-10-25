@@ -38,7 +38,6 @@ export function StageNote({ title, children, style }: StageNoteProps) {
         style={{
           fontSize: theme.typography.size.caption,
           lineHeight: theme.typography.lineHeight.caption,
-          letterSpacing: 1,
           color: palette.textMuted,
           fontFamily: theme.typography.fontFamily.body,
         }}

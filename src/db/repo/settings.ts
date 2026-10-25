@@ -146,10 +146,13 @@ export function updateDifficulty(difficulty: Difficulty): void {
   updateSettings({ difficulty });
 }
 
-/** 更新主题 */
-export function updateTheme(themeId: ThemeId, themeMode: ThemeMode): void {
-  updateSettings({ themeId, themeMode });
-}
+/*
+ * 这里原来有一个 updateTheme(themeId, themeMode)。
+ * 界面只剩一套主题之后它没有调用方了，删掉——留着一个没人调的写库函数，
+ * 会让人以为某处还在改主题。
+ * 两列本身（theme_id / theme_mode）和 SettingsPatch 里的对应字段都保留：
+ * 表结构已发布，且将来主题回来时这两个字段直接就能用。
+ */
 
 /**
  * 记录「见过的最大时间戳」。

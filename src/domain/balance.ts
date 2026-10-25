@@ -156,7 +156,7 @@ export type DifficultyKey = 'easy' | 'standard' | 'hard';
 
 /** 一档难度的完整配置。字段含义见下方 DIFFICULTY 注释 */
 export interface DifficultyProfile {
-  /** 界面展示名（炉边语气：不说「惩罚」，说「温和」） */
+  /** 界面展示名（界面语气：不说「惩罚」，说「温和」） */
   label: string;
   /** 收益倍率：同时作用于 XP、余烬、属性 XP */
   rewardMult: number;
@@ -329,6 +329,53 @@ export function growAttribute(
     points: nextPoints,
     pointsGained: nextPoints - pts0,
     leveledUp: nextPoints > pts0,
+  };
+}
+
+/** 属性回退结果 */
+export interface AttributeRegression {
+  /** 回退后的属性 XP（0–199） */
+  xp: number;
+  /** 回退后的属性点（0–99） */
+  points: number;
+  /** 本次扣掉了几点属性点（0 或正数） */
+  pointsLost: number;
+}
+
+/**
+ * 属性回退：growAttribute 的反向操作，撤销打卡时用。
+ *
+ * 为什么不直接 `growAttribute(xp, points, -loss)`：
+ * 那个函数只接受正数的 gain，而且它不知道「点数」是可以拆回 XP 的。
+ * 撤销一次拿过 20 属性 XP 的记录时，如果当时刚好靠它满了 200 换到 1 点，
+ * 正确的回退是「点数减 1、XP 变成 180」，而不是「XP 减 20」。
+ *
+ * 做法：把「点数 × 200 + XP」还原成总量，扣掉 loss 再拆回去。
+ * 这样不需要额外存「总属性经验」，也不会让 XP 落在 0–199 之外。
+ *
+ * 上限的取舍：属性点到 99 之后 growAttribute 丢弃了溢出的部分，
+ * 所以这里的「总量」只是实际存下来的总量，回退结果与之一致，不会扣成负数。
+ */
+export function regressAttribute(
+  currentXp: number,
+  currentPoints: number,
+  loss: number
+): AttributeRegression {
+  const xp0 = Math.min(ATTR_XP_PER_POINT - 1, Math.max(0, Math.floor(currentXp || 0)));
+  const pts0 = Math.min(ATTR_POINTS_MAX, Math.max(0, Math.floor(currentPoints || 0)));
+
+  const total = pts0 * ATTR_XP_PER_POINT + xp0;
+  // 先钳到「现有的总量」，否则一次异常的 loss 能把属性扣成负数
+  const take = Math.min(Math.max(0, Math.floor(Number.isFinite(loss) ? loss : 0)), total);
+  const remaining = total - take;
+
+  const nextPoints = Math.min(ATTR_POINTS_MAX, Math.floor(remaining / ATTR_XP_PER_POINT));
+  const nextXp = remaining % ATTR_XP_PER_POINT;
+
+  return {
+    xp: nextXp,
+    points: nextPoints,
+    pointsLost: pts0 - nextPoints,
   };
 }
 
