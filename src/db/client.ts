@@ -8,11 +8,19 @@
  *
  * 注意：expo-sqlite 的同步 API 只能在 JS 线程调用，且不要在渲染期间调用，
  * 统一放在启动流程与事件回调里。
+ *
+ * 依赖说明：package.json 里还没有 expo-sqlite（阶段 0 只装了最小依赖）。
+ * 启用这一层之前，先执行：
+ *     npx expo install expo-sqlite
+ * 该命令会按 SDK 58 选择匹配的版本，不需要手改 package.json。
  */
 import { openDatabaseSync, type SQLiteDatabase } from 'expo-sqlite';
 
+import { newId } from './id';
 import { migrate } from './migrate';
 import { seedIfEmpty } from './seed';
+
+export { newId };
 
 /** 数据库文件名。放在 App 私有目录下，卸载即删除。 */
 export const DB_NAME = 'ember.db';
@@ -22,18 +30,6 @@ let instance: SQLiteDatabase | null = null;
 
 /** 是否已经跑过「迁移 + 种子」，避免重复执行 */
 let initialized = false;
-
-/**
- * 生成一个本地唯一 ID。
- *
- * 为什么不装 uuid 库：这是完全离线的单机 App，同一毫秒内几乎不可能生成两条记录，
- * 时间戳 + 随机后缀已经够用，少一个依赖就少一个构建风险。
- */
-export function newId(): string {
-  const timePart = Date.now().toString(36);
-  const randomPart = Math.random().toString(36).slice(2, 10);
-  return `${timePart}-${randomPart}`;
-}
 
 /**
  * 打开数据库连接并设置 PRAGMA。
@@ -46,7 +42,7 @@ export function openDatabase(): SQLiteDatabase {
 
   // WAL：读写并发更好，崩溃恢复更稳
   db.execSync('PRAGMA journal_mode = WAL;');
-  // SQLite 默认关闭外键约束，必须每个连接都开
+  // SQLite 默认关闭外键约束，每个连接都要单独打开
   db.execSync('PRAGMA foreign_keys = ON;');
   // WAL 下兼顾安全与性能
   db.execSync('PRAGMA synchronous = NORMAL;');
@@ -85,13 +81,21 @@ export function initDatabase(): SQLiteDatabase {
 }
 
 /**
- * 在事务里执行一段同步逻辑。
+ * 在事务里执行一段同步逻辑，并返回它的结果。
  *
- * 用法：把「写打卡 + 改 player 快照」这类必须同生共死的操作包在一起。
+ * 用法：把「写打卡 + 改 player 快照」这类要同生共死的操作包在一起。
  * 回调里抛错时 expo-sqlite 会自动回滚。
+ *
+ * 注意：expo-sqlite 的 withTransactionSync 本身不返回回调的返回值，
+ * 所以这里用一个局部变量接一下。
  */
 export function runInTransaction<T>(fn: () => T): T {
-  return getDb().withTransactionSync(fn);
+  let result: T;
+  getDb().withTransactionSync(() => {
+    result = fn();
+  });
+  // 事务回调必然同步执行完毕，这里的赋值一定已发生
+  return result!;
 }
 
 /**

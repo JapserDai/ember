@@ -30,10 +30,13 @@ import { businessDayEndMs, diffDays, MS_PER_HOUR } from './date';
 import { checkinSeed } from './prng';
 import type { RecurrenceKind, TaskKind, TaskStatus } from './recurrence';
 
-/** 每日软上限里「超出部分」的 XP 折算比例（余烬的对应比例是 0） */
+/**
+ * 每日软上限里「超出部分」的折算比例。
+ *
+ * XP 与属性 XP 共用这个比例（属性 XP 按 XP 的额度比例切分，见 splitByXpQuota），
+ * 余烬的对应比例是 0——超出额度后余烬一点不给，这是 docs 4.4 的硬规定。
+ */
 export const XP_OVERFLOW_RATIO = 0.25;
-/** 每日软上限里「超出部分」的属性 XP 折算比例 */
-export const ATTR_OVERFLOW_RATIO = 0.25;
 
 /** 一次打卡的输入来源 */
 export type ScoreSource = 'manual' | 'backfill' | 'import';
@@ -273,11 +276,14 @@ function validate(input: ScoreInput): ScoreErrorCode | null {
 }
 
 /**
- * 把本次原始奖励按「XP 额度还剩多少」切成两段，并给属性 XP 同样的待遇。
+ * 把本次原始奖励按「XP 软额度还剩多少」切成两段，并给属性 XP 同样的待遇。
  *
  * 为什么不给属性单独设一个上限：属性 XP 是跟着 XP 走的（20 属性 XP / 30 XP），
  * 再单独定义一套额度会让两张表互相打架。这里让属性 XP 按 XP 的额度比例切分：
- * 额度内那段 100%，超出那段 25%。这样「今天做太多了」对三项收益的影响是一致的。
+ * 额度内那段 100%，超出那段给 25%。这样「今天做太多了」对三项收益的影响一致。
+ *
+ * 绝对硬上限（3000 XP/日）不在这里处理：它是一道硬闸，
+ * 由调用方在拿到结果后再封顶，避免出现「软上限溢出 25% 把总量顶破 3000」的情况。
  */
 function splitByXpQuota(
   rawXp: number,
@@ -297,7 +303,7 @@ function splitByXpQuota(
 
   return {
     xp: inQuotaXp + Math.floor(overflowXp * XP_OVERFLOW_RATIO),
-    attr: inQuotaAttr + Math.floor(overflowAttr * ATTR_OVERFLOW_RATIO),
+    attr: inQuotaAttr + Math.floor(overflowAttr * XP_OVERFLOW_RATIO),
     capped: true,
   };
 }
@@ -359,27 +365,26 @@ export function computeScore(input: ScoreInput): ScoreResult {
   const xpUsedBefore = Math.max(0, Math.floor(input.todayXp || 0));
   const emberUsedBefore = Math.max(0, Math.floor(input.todayEmber || 0));
 
-  // 绝对硬上限 3000 XP/日：先扣掉今天已用，再封顶
+  // 先按软上限分段（超出部分给 25%），再用绝对硬上限 3000 XP/日 封顶。
+  // 硬上限是防刷闸门：到顶之后一点都不给，也不参与 25% 折算。
+  const softRemaining = Math.max(0, cap.xp - xpUsedBefore);
   const hardRemaining = Math.max(0, cap.xpHard - xpUsedBefore);
-  const xpRemaining = Math.min(Math.max(0, cap.xp - xpUsedBefore), hardRemaining);
 
-  const split = splitByXpQuota(rawXp, rawAttr, xpRemaining);
-  const xpAwarded = split.xp;
-  const attrXpAwarded = split.attr;
+  const softSplit = splitByXpQuota(rawXp, rawAttr, softRemaining);
+  const xpAwarded = Math.min(softSplit.xp, hardRemaining);
+  // 属性 XP 按 XP 被硬上限削掉的比例同步削减，保持「20 属性 XP / 30 XP」的配比
+  const attrXpAwarded =
+    softSplit.xp > 0 ? Math.floor((softSplit.attr * xpAwarded) / softSplit.xp) : 0;
+  // 软上限或硬上限任意一个削过，都记成「被截断」，UI 据此换成「今天已经很充实了」这类文案
+  const xpCapped = softSplit.capped || xpAwarded < softSplit.xp;
 
   // 余烬：超出部分给 0%，所以 overflowRatio = 0
-  const emberAwarded = applySoftCap(
-    rawEmber,
-    emberUsedBefore,
-    cap.ember,
-    0
-  );
+  const emberAwarded = applySoftCap(rawEmber, emberUsedBefore, cap.ember, 0);
 
   // ---------- 4. 奖励兑换只消耗，不产出 ----------
   // 奖励类任务（v0.4 商店）走同一条路径：不发 XP，只扣余烬。
-  const spendEmber = task.type === 'reward'
-    ? clampInt(task.emberCost, 0, Number.MAX_SAFE_INTEGER, 0)
-    : 0;
+  const spendEmber =
+    task.type === 'reward' ? clampInt(task.emberCost, 0, Number.MAX_SAFE_INTEGER, 0) : 0;
   const finalXp = task.type === 'reward' ? 0 : xpAwarded;
   const finalAttr = task.type === 'reward' ? 0 : attrXpAwarded;
   const finalEmber = task.type === 'reward' ? 0 : emberAwarded;
@@ -418,7 +423,8 @@ export function computeScore(input: ScoreInput): ScoreResult {
     attrKey: task.attribute,
     attrXpAwarded: finalAttr,
     multiplier,
-    isCapped: split.capped || emberAwarded < rawEmber ? 1 : 0,
+    // 奖励兑换不产出任何东西，不算被截断
+    isCapped: task.type === 'reward' ? 0 : xpCapped || emberAwarded < rawEmber ? 1 : 0,
     prngSeed: seed,
   };
 
@@ -444,7 +450,7 @@ export function computeScore(input: ScoreInput): ScoreResult {
       emberCap: cap.ember,
       xpUsedBefore,
       emberUsedBefore,
-      xpCapped: split.capped,
+      xpCapped: xpCapped,
       emberCapped: emberAwarded < rawEmber,
     },
     awarded: { xp: finalXp, ember: finalEmber, attrXp: finalAttr },

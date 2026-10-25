@@ -52,6 +52,8 @@ export interface SchedulableTask {
   startDate: string;
   /** 结束业务日（含），null 表示不结束 */
   endDate?: string | null;
+  /** 待办的截止日。只用于展示与「已收起」标记，不把任务从列表里移走 */
+  dueDate?: string | null;
   status: TaskStatus;
   /** 软删除时间戳，非空即视为已删除 */
   deletedAt?: number | null;
@@ -85,9 +87,14 @@ function parseConfig(raw: SchedulableTask['recurrenceConfig']): ParsedConfig {
   const days = (obj as { days?: unknown }).days;
   if (!Array.isArray(days)) return { days: [] };
 
-  // 去重 + 只保留正整数：脏数据（字符串、小数、重复）在这里统一清理
+  // 去重 + 只保留 1–31 的整数：脏数据（字符串、小数、0、99）在这里统一清理。
+  // 上限 31 是日历日号的上限；超过它的值没有任何合法语义，留着只会造成「永远不排期」。
   const clean = Array.from(
-    new Set(days.filter((d): d is number => Number.isInteger(d) && (d as number) > 0))
+    new Set(
+      days.filter(
+        (d): d is number => Number.isInteger(d) && (d as number) >= 1 && (d as number) <= 31
+      )
+    )
   );
   return { days: clean };
 }
@@ -95,12 +102,15 @@ function parseConfig(raw: SchedulableTask['recurrenceConfig']): ParsedConfig {
 /**
  * 判断任务在指定业务日是否处于「可打卡」区间。
  *
- * 这一层只做通用过滤：已删除、暂停、已归档、还没开始、已经结束，都不排期。
- * 已完成（done）的习惯也排除；一次性任务由 once 分支单独处理。
+ * 这一层只做通用过滤，与具体重复规则无关：
+ * 已删除、暂停、已归档、已完成的待办/奖励、还没开始、已经结束，都不排期。
+ * 习惯即使状态是 done 也照常排期——习惯没有「完成」这个概念。
  */
 function isWithinWindow(task: SchedulableTask, dateKey: string): boolean {
   if (task.deletedAt) return false;
   if (task.status === 'paused' || task.status === 'archived') return false;
+  // 已完成的待办/奖励不再出现；习惯的 done 没有意义，仍按排期处理
+  if (task.status === 'done' && task.type !== 'habit') return false;
   if (diffDays(task.startDate, dateKey) < 0) return false; // 还没开始
   if (task.endDate && diffDays(task.endDate, dateKey) > 0) return false; // 已结束
   return true;
@@ -182,12 +192,10 @@ export function isScheduledOn(
       return weeklyDone < target;
     }
 
-    case 'once': {
-      // 一次性任务（待办 / 奖励）：完成前一直留在列表里，
-      // 所以只要在生效区间内就算排期；完成与否由 status === 'done' 排除。
-      if (task.status === 'done') return false;
+    case 'once':
+      // 一次性任务（待办 / 奖励）：完成前一直留在列表里，只要在生效区间内就算排期。
+      // 已完成的排除已经由 isWithinWindow 统一处理，这里不用再判一次。
       return true;
-    }
 
     default:
       return false;
@@ -214,24 +222,37 @@ export function daysLeftInWeek(todayKey: string, weekStartsOn: number = 1): numb
  *
  * 这只是个便利函数，不参与奖励计算。返回 0 表示本周已达标，
  * UI 应该显示「本周已完成」而不是催促。
+ * 本周已完成的次数由调用方用 checkins 按业务周聚合后传入。
  */
-export function weeklyQuotaLeft(
-  task: SchedulableTask,
-  todayKey: string,
-  weeklyDone: number
-): number {
+export function weeklyQuotaLeft(task: SchedulableTask, weeklyDone: number): number {
   const target = Math.floor(task.weeklyTarget ?? 0);
   return Math.max(0, target - Math.max(0, weeklyDone));
 }
 
 /**
- * 一次性任务的「是否已过期」判断。
+ * 本周的业务日区间（含首尾）。
  *
- * 待办没有 end_date 时不算过期——它们会一直留在列表里。
- * 只有显式设置了 end_date 且今天已过，才算过期（UI 用中性词「已收起」）。
+ * repo 层查「本周已做几次」时用它拼 BETWEEN 条件，
+ * 避免各处自己算周首日、算错周起始设置。
+ */
+export function weekRange(
+  todayKey: string,
+  weekStartsOn: number = 1
+): { start: string; end: string } {
+  const start = startOfWeek(todayKey, weekStartsOn);
+  return { start, end: addDays(start, 6) };
+}
+
+/**
+ * 一次性任务是否已经「收起」。
+ *
+ * 待办没有截止日时不算收起——它们会一直留在列表里，等用户自己处理。
+ * 只有显式设置了截止日（due_date，没有则退回 end_date）且今天已过，才标记为收起。
+ * 注意：收起只影响展示分组，不会删除任务，也不会产生任何扣减。
  */
 export function isExpiredOnce(task: SchedulableTask, todayKey: string): boolean {
   if (task.recurrence !== 'once') return false;
-  if (!task.endDate) return false;
-  return diffDays(task.endDate, todayKey) > 0;
+  const cutoff = task.dueDate ?? task.endDate;
+  if (!cutoff) return false;
+  return diffDays(cutoff, todayKey) > 0;
 }

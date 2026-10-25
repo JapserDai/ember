@@ -174,8 +174,6 @@ export interface DifficultyProfile {
   breakPenaltyRate: number;
   /** 单次扣余烬上限（轻松为 0） */
   breakPenaltyCap: number;
-  /** 伙伴状态恢复系数：影响恢复速度，不影响玩家数值 */
-  companionRecoveryMult: number;
   /** 修复成功后当日记录的 XP 比例（轻松 100%、标准 70%、硬核 100% 已付费） */
   repairXpRatio: number;
 }
@@ -183,7 +181,7 @@ export interface DifficultyProfile {
 /**
  * 三档难度完整配置。
  *
- * 数值必须与 docs/02 §3.1 和 docs/04 §4.5 逐项一致。
+ * 数值必须与 docs/02 §2.1 和 docs/04 §4.5 逐项一致。
  * 轻松档的所有「惩罚」字段都是 0——这是产品的硬原则：永不惩罚。
  */
 export const DIFFICULTY: Record<DifficultyKey, DifficultyProfile> = {
@@ -197,7 +195,6 @@ export const DIFFICULTY: Record<DifficultyKey, DifficultyProfile> = {
     gracePerMonth: 3,
     breakPenaltyRate: 0,
     breakPenaltyCap: 0,
-    companionRecoveryMult: 1.15,
     repairXpRatio: 1.0,
   },
   standard: {
@@ -210,7 +207,6 @@ export const DIFFICULTY: Record<DifficultyKey, DifficultyProfile> = {
     gracePerMonth: 2,
     breakPenaltyRate: 0.05,
     breakPenaltyCap: 30,
-    companionRecoveryMult: 1.0,
     repairXpRatio: 0.7,
   },
   hard: {
@@ -223,7 +219,6 @@ export const DIFFICULTY: Record<DifficultyKey, DifficultyProfile> = {
     gracePerMonth: 0,
     breakPenaltyRate: 0.1,
     breakPenaltyCap: 80,
-    companionRecoveryMult: 0.9,
     repairXpRatio: 1.0,
   },
 };

@@ -10,6 +10,47 @@
  * 以后要加字段，新开一条迁移，用 ALTER TABLE 追加，不改这里的旧 SQL。
  */
 
+// ============================================================
+// 枚举类型
+//
+// 这里不重新定义一遍，而是从 domain/ 转出：
+// 数值规则与类型只允许有一个来源，否则 CHECK 约束和 TypeScript 类型迟早对不上。
+// db 依赖 domain 是允许的，反过来不允许（domain 要保持纯净）。
+// ============================================================
+
+/** 五维属性键：体魄 / 心智 / 秩序 / 心力 / 联结 */
+export type { AttributeKey } from '../domain/balance';
+/** 属性键的固定顺序，遍历时用 */
+export { ATTRIBUTE_KEYS } from '../domain/balance';
+
+/** 任务类型：习惯 / 待办 / 奖励 */
+export type { TaskKind as TaskType } from '../domain/recurrence';
+/** 重复规则 */
+export type { RecurrenceKind as Recurrence } from '../domain/recurrence';
+/** 任务状态 */
+export type { TaskStatus } from '../domain/recurrence';
+
+/** 难度 */
+export type { DifficultyKey as Difficulty } from '../domain/balance';
+
+/**
+ * 主题 id。
+ *
+ * 注意：这里的取值必须和 theme/tokens.ts 的 ThemeId 完全一致，
+ * 但两边是各自声明的——db 层不能 import theme 层（依赖方向是 db → domain，theme 是界面侧）。
+ * 改这里就要同步改 tokens.ts，以及 v1 建表 SQL 里的 CHECK（v1 已发布，靠迁移 2 扩）。
+ */
+export type ThemeId = 'furnace' | 'nightvoyage' | 'tundra' | 'daybreak';
+
+/** 明暗模式 */
+export type ThemeMode = 'system' | 'light' | 'dark';
+
+/** 打卡来源 */
+export type CheckinSource = 'manual' | 'backfill' | 'import';
+
+/** 打卡状态（reversed = 已撤销，仍保留在表里） */
+export type CheckinStatus = 'active' | 'reversed';
+
 /** 表 1：player —— 玩家快照（永远只有 1 行） */
 export const PLAYER_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS player (
@@ -65,6 +106,7 @@ CREATE TABLE IF NOT EXISTS settings (
   -- 难度与外观
   difficulty       TEXT NOT NULL DEFAULT 'easy'
                      CHECK (difficulty IN ('easy','standard','hard')),  -- 默认轻松
+  -- v1 只认前三套。晨光（daybreak）由迁移 2 重写这张表时加进来，见 SCHEMA_SQL_V2
   theme_id         TEXT NOT NULL DEFAULT 'furnace'
                      CHECK (theme_id IN ('furnace','nightvoyage','tundra')),
   theme_mode       TEXT NOT NULL DEFAULT 'system'
@@ -131,9 +173,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- 奖励类专用
   ember_cost       INTEGER NOT NULL DEFAULT 0 CHECK (ember_cost >= 0),
 
-  -- v0.3+ 才用，现在只留字段
-  chapter_id       TEXT,
-  milestone_id     TEXT,
+  -- 目标归属（可选）。一个任务最多属于一个目标
+  -- 不加外键：目标删除是软删除，由 repo 层负责把关联任务的 goal_id 置空
+  goal_id          TEXT,
 
   created_at       INTEGER NOT NULL,
   updated_at       INTEGER NOT NULL,
@@ -202,6 +244,43 @@ CREATE TABLE IF NOT EXISTS checkins (
 );
 `;
 
+/**
+ * 表 5：goals —— 目标（v0.3 才用，v0.1 建表但不接界面）
+ *
+ * 目标只有一句话、一个可选截止日、一个状态。
+ * 没有子目标、没有阶段、没有百分比。
+ *
+ * 进度不存字段，每次由「关联任务完成了几个 / 一共几个」现算。
+ * 存字段就得同步维护，一处漏改就永远对不上；现算永远不会错。
+ * 关联走 tasks.goal_id，一个任务最多属于一个目标。
+ */
+export const GOALS_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS goals (
+  id            TEXT PRIMARY KEY NOT NULL,
+  player_id     TEXT NOT NULL REFERENCES player(id) ON DELETE CASCADE,
+
+  -- 一句话目标，例如「把睡眠找回来」
+  title         TEXT NOT NULL CHECK (length(trim(title)) BETWEEN 1 AND 80),
+  -- 为什么想走这一段（可选）。这是回头时最想看到的那句话
+  why           TEXT,
+
+  -- 截止日（可选）。不填就是不限期，不显示倒计时
+  due_date      TEXT,
+
+  status        TEXT NOT NULL DEFAULT 'active'
+                  CHECK (status IN ('active','done','archived')),
+  completed_at  INTEGER,
+
+  sort_order    INTEGER NOT NULL DEFAULT 0,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL,
+  deleted_at    INTEGER,
+
+  CHECK (due_date IS NULL
+         OR due_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')
+);
+`;
+
 /** 索引：按「今天要做什么」「某天打了哪些卡」这两类查询来建 */
 export const INDEXES_SQL = `
 CREATE INDEX IF NOT EXISTS idx_tasks_player_status
@@ -220,13 +299,97 @@ CREATE INDEX IF NOT EXISTS idx_checkins_player_date
 
 CREATE INDEX IF NOT EXISTS idx_checkins_task_date
   ON checkins (task_id, local_date, status);
+
+-- 目标的列表按状态分组、按排序值排
+CREATE INDEX IF NOT EXISTS idx_goals_player_status
+  ON goals (player_id, status, sort_order) WHERE deleted_at IS NULL;
+
+-- 按目标取它下面的任务，用来算进度
+CREATE INDEX IF NOT EXISTS idx_tasks_goal
+  ON tasks (goal_id) WHERE goal_id IS NOT NULL AND deleted_at IS NULL;
 `;
 
-/** v0.1 的完整建库脚本：迁移器从版本 0 升到 1 时整段执行 */
+/**
+ * 完整建库脚本：迁移器从版本 0 升到 1 时整段执行。
+ *
+ * 注意 goals 表在这里就建好，虽然 v0.1 的界面还不接它。
+ * 理由：建表是幂等的（IF NOT EXISTS），现在建好，v0.3 接界面时不用再写迁移；
+ * 而迁移器每加一条都要在真机上验证一遍，能省一条是一条。
+ */
 export const SCHEMA_SQL_V1 = [
   PLAYER_TABLE_SQL,
   SETTINGS_TABLE_SQL,
   TASKS_TABLE_SQL,
   CHECKINS_TABLE_SQL,
+  GOALS_TABLE_SQL,
   INDEXES_SQL,
 ].join('\n');
+
+// ============================================================
+// 迁移 2：settings.theme_id 的取值加 'daybreak'
+//
+// CHECK 约束改不了，SQLite 只能「建新表 → 拷数据 → 删旧表 → 改名」。
+// 这段 SQL 只被 migrate.ts 在 1 → 2 时执行一次，写在这里是为了和建表 SQL 放在一起对照。
+//
+// 为什么要重建而不是干脆不做约束：settings 只有 1 行，重建成本可以忽略；
+// 而 theme_id 一旦写进非法值，界面会静默回退到炉边，用户会觉得「主题设置丢了」。
+// 宁可让非法值在写入时直接报错。
+//
+// 拷数据时逐列写死列名，不用 SELECT * —— 列顺序变了也不会错位。
+// ============================================================
+
+/** v2 的 settings 表：与 v1 相同，只有 theme_id 的 CHECK 多了 'daybreak' */
+export const SETTINGS_TABLE_SQL_V2 = `
+CREATE TABLE settings_v2 (
+  id               TEXT PRIMARY KEY NOT NULL DEFAULT 'singleton'
+                     CHECK (id = 'singleton'),
+  player_id        TEXT NOT NULL REFERENCES player(id) ON DELETE CASCADE,
+
+  day_start_hour   INTEGER NOT NULL DEFAULT 4
+                     CHECK (day_start_hour BETWEEN 0 AND 23),
+  last_settled_date TEXT,
+  week_starts_on   INTEGER NOT NULL DEFAULT 1 CHECK (week_starts_on IN (0,1)),
+
+  difficulty       TEXT NOT NULL DEFAULT 'easy'
+                     CHECK (difficulty IN ('easy','standard','hard')),
+  theme_id         TEXT NOT NULL DEFAULT 'furnace'
+                     CHECK (theme_id IN ('furnace','nightvoyage','tundra','daybreak')),
+  theme_mode       TEXT NOT NULL DEFAULT 'system'
+                     CHECK (theme_mode IN ('system','light','dark')),
+  reduce_motion    INTEGER NOT NULL DEFAULT 0 CHECK (reduce_motion IN (0,1)),
+  haptics_enabled  INTEGER NOT NULL DEFAULT 1 CHECK (haptics_enabled IN (0,1)),
+
+  max_seen_utc     INTEGER NOT NULL DEFAULT 0,
+  last_time_zone   TEXT,
+
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL
+);
+`;
+
+/**
+ * 整个 1 → 2 迁移：重建 settings、给 player 加头像的重掷计数。
+ * 包在 migrate.ts 的那个事务里，全成或全不成。
+ */
+export const MIGRATE_V1_TO_V2_SQL = `
+${SETTINGS_TABLE_SQL_V2}
+INSERT INTO settings_v2 (
+  id, player_id, day_start_hour, last_settled_date, week_starts_on,
+  difficulty, theme_id, theme_mode, reduce_motion, haptics_enabled,
+  max_seen_utc, last_time_zone, created_at, updated_at
+)
+SELECT
+  id, player_id, day_start_hour, last_settled_date, week_starts_on,
+  difficulty, theme_id, theme_mode, reduce_motion, haptics_enabled,
+  max_seen_utc, last_time_zone, created_at, updated_at
+FROM settings;
+DROP TABLE settings;
+ALTER TABLE settings_v2 RENAME TO settings;
+
+-- 头像的重掷计数。图案本身不存：它由 (player.id, avatar_seed) 算出来。
+-- 存一个整数而不是一段 SVG / 一张图片，是为了让导入导出只多带一个数字，
+-- 也保证「同一个 id + 同一个计数 = 同一个头像」在任何设备上成立。
+-- ALTER TABLE 加列带 CHECK 在 SQLite 里是允许的：旧行按默认值 0 补齐。
+ALTER TABLE player ADD COLUMN avatar_seed INTEGER NOT NULL DEFAULT 0
+  CHECK (avatar_seed >= 0);
+`;

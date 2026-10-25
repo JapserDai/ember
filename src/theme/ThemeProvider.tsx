@@ -7,6 +7,7 @@ import React, {
 } from 'react';
 import { useColorScheme } from 'react-native';
 
+import { updateSettings } from '../db/repo/settings';
 import {
   DEFAULT_THEME_ID,
   DEFAULT_THEME_MODE,
@@ -25,11 +26,13 @@ import {
  * 职责：
  * 1. 持有当前 themeId 与 themeMode（内存态，切换立即生效）。
  * 2. themeMode = 'system' 时读取系统配色；夜航在系统模式下优先暗色，
- *    炉边与苔原优先亮色（见 tokens.ts 的 defaultScheme）。
+ *    炉边、苔原、晨光优先亮色（见 tokens.ts 的 defaultScheme）。
+ *    晨光没有暗色版，任何模式下都解析为亮色（resolveScheme 的第一条规则）。
  * 3. 对外只暴露「已经解析好的」palette，组件不需要关心明暗判断。
  *
- * 持久化：阶段 1 只做内存态。等 db 层的 settings 仓储完成后，
- * 在 setThemeId / setThemeMode 里补一次写库（TODO 见下方）。
+ * 持久化：切换时**先写库、再改内存态**。
+ * 反过来的话，写库失败（磁盘满、数据库损坏）时界面已经变了，
+ * 用户会以为设置成功，下次打开却变回去——一个会自己忘事的设置比不能改更糟。
  */
 
 /** useTheme() 的返回值 */
@@ -44,9 +47,12 @@ export interface ThemeContextValue {
   themeId: ThemeId;
   /** 当前主题模式设置（可能是 system） */
   themeMode: ThemeMode;
-  /** 切换主题。阶段 1 还没有主题选择页，接口先留好 */
+  /**
+   * 切换主题。写库成功后才生效；写库失败时抛错，界面保持原样。
+   * 调用方（主题选择页）负责把错误变成一句人话。
+   */
   setThemeId: (id: ThemeId) => void;
-  /** 切换明暗模式 */
+  /** 切换明暗模式，规则同上 */
   setThemeMode: (mode: ThemeMode) => void;
   /** 减少动效：为 true 时组件跳过位移、缩放、粒子，只保留淡入淡出 */
   reduceMotion: boolean;
@@ -85,20 +91,34 @@ export function ThemeProvider({
   );
   const palette = scheme === 'dark' ? theme.dark : theme.light;
 
-  const setThemeId = useCallback((id: ThemeId) => {
-    setThemeIdState(id);
-    // TODO(db): settingsRepo.updateTheme(id, themeMode)
-    // 阶段 1 主题固定为炉边，这里只保留接口；写库在设置页落地时接上。
-  }, []);
+  /**
+   * 切换主题。
+   *
+   * 两个字段一起写：切到晨光时如果 theme_mode 还是 dark，界面上看不出问题
+   * （晨光没有暗色板），但换回夜航会立刻变成暗色——用户会以为「夜航自己变黑了」。
+   * 所以在切主题时把 mode 也归一到与这套主题自洽的值。
+   */
+  const setThemeId = useCallback(
+    (id: ThemeId) => {
+      const nextTheme = getTheme(id);
+      // 没有暗色版的主题，mode 归到 light，避免留下一个「看起来没生效」的 dark
+      const nextMode: ThemeMode = nextTheme.supportsDark ? themeMode : 'light';
+      // 先写库：写失败会抛错，界面保持原样
+      updateSettings({ themeId: id, themeMode: nextMode });
+      setThemeIdState(id);
+      setThemeModeState(nextMode);
+    },
+    [themeMode]
+  );
 
   const setThemeMode = useCallback((mode: ThemeMode) => {
+    updateSettings({ themeMode: mode });
     setThemeModeState(mode);
-    // TODO(db): settingsRepo.updateThemeMode(mode)
   }, []);
 
   const setReduceMotion = useCallback((value: boolean) => {
+    updateSettings({ reduceMotion: value });
     setReduceMotionState(value);
-    // TODO(db): settingsRepo.updateReduceMotion(value ? 1 : 0)
   }, []);
 
   const value = useMemo<ThemeContextValue>(
@@ -129,11 +149,11 @@ export function ThemeProvider({
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
-/** 读取主题。必须在 ThemeProvider 内部使用 */
+/** 读取主题。只能在 ThemeProvider 内部使用 */
 export function useTheme(): ThemeContextValue {
   const ctx = useContext(ThemeContext);
   if (!ctx) {
-    throw new Error('useTheme() 必须在 <ThemeProvider> 内部使用');
+    throw new Error('useTheme() 只能在 <ThemeProvider> 内部使用');
   }
   return ctx;
 }

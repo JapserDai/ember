@@ -1,26 +1,29 @@
 /**
- * 业务日工具（全项目唯一入口）
+ * 业务日的唯一入口。
  *
- * 为什么单独写这一层：
- * 1. 「今天」不是 UTC 的今天，也不是日历的今天，而是「本地时间过了 day_start_hour 才算新的一天」。
- *    凌晨 3:59 打卡算前一天，4:00 才算新的一天。
- * 2. 业务日只以 "YYYY-MM-DD" 字符串在层与层之间传递；UTC 毫秒只用于审计、排序、修复倒计时。
- * 3. 日期加减全部走 UTC 日期序数，避免夏令时那天只有 23 小时导致 ±1 天算错。
- * 4. 任何地方出现 new Date().getDate() 之类的散装写法都是 bug，必须回到这里。
+ * 规则（docs/03 §4）：
+ * 1. 业务日 = localDate "YYYY-MM-DD"，由「设备本地时间 + dayStart」推导。
+ * 2. 绝不用 UTC 时间戳判断业务日；UTC 只用于审计、排序、补记倒计时。
+ * 3. dayStart 默认 4 点：凌晨 3:59 仍算前一天，4:00 算新的一天。
+ * 4. 日期加减一律走 UTC 日期序数，避免夏令时那天只有 23 小时导致算错一天。
+ * 5. 业务日只能前进：系统时间被调回过去时，沿用上次结算日（见 effectiveToday）。
  *
- * 本文件是纯函数：不 import React、不碰数据库、不读全局状态。
+ * 本文件属于 domain 层：不 import React、不碰数据库，只接收纯数据返回纯数据。
+ * 全项目只允许从这里取「今天」；任何 new Date().getDate() 之类的散装写法都是 bug。
  */
+
+/** 默认日界：凌晨 4 点。与 settings.day_start_hour 的默认值一致 */
+export const DEFAULT_DAY_START_HOUR = 4;
 
 /** 一小时的毫秒数。只用于「距业务日结束过了几小时」这类估算，不用于日期加减 */
 export const MS_PER_HOUR = 3_600_000;
 
-/** 一天的毫秒数。只用于把 UTC 日期序数差换算成天数（UTC 没有夏令时，恒为 24 小时） */
+/** 一天的毫秒数。只用于 UTC 日期序数做差（UTC 没有夏令时，恒为 24 小时） */
 const MS_PER_UTC_DAY = 86_400_000;
 
-/** 默认日界：凌晨 4 点。与 settings.day_start_hour 的默认值保持一致 */
-export const DEFAULT_DAY_START_HOUR = 4;
+const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
-/** 把数字补成两位字符串：7 -> "07" */
+/** 数字补两位：7 -> "07" */
 function pad2(n: number): string {
   return n < 10 ? `0${n}` : String(n);
 }
@@ -32,32 +35,50 @@ function clampDayStartHour(hour: number): number {
 }
 
 /**
- * 把 Date 转成本地时区的日期键 "YYYY-MM-DD"。
+ * 把本地 Date 格式化成 "YYYY-MM-DD"。
  *
- * 注意：这里用的是本地 getFullYear/getMonth/getDate，不是 UTC 版本。
- * 因为业务日永远跟着用户手机的本地时钟走——用户出国后，日期就该按当地日历算。
+ * 用本地的 getFullYear/getMonth/getDate，不用 toISOString——
+ * toISOString 是 UTC，东八区晚上 8 点之后就会变成「明天」，业务日会整体错一天。
  */
+export function toLocalDateString(date: Date): string {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+/** 同 toLocalDateString，只是换了个更短的名字，方便业务代码里用 */
 export function toDateKey(d: Date): string {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  return toLocalDateString(d);
 }
 
 /**
  * 把日期键还原成 Date。
  *
- * 为什么固定用本地正午 12:00：
- * 夏令时切换通常发生在凌晨 2–3 点，那段时间「这个钟点可能不存在」或「存在两次」。
- * 正午永远存在、且离切换点足够远，所以用正午构造出来的 Date 一定落在正确的那一天。
+ * 为什么固定用本地正午 12:00：夏令时切换通常在凌晨 2–3 点，
+ * 那个钟点可能不存在或存在两次；正午永远存在且远离切换点，
+ * 所以构造出来的 Date 一定落在正确的那一天。
  */
 export function dateFromKey(key: string): Date {
   const [y, m, d] = key.split('-').map(Number);
   return new Date(y, (m || 1) - 1, d || 1, 12, 0, 0, 0);
 }
 
+/** 解析 "YYYY-MM-DD"，非法输入返回 null（不抛异常，调用方自行回退） */
+export function parseLocalDate(
+  localDate: string,
+): { year: number; month: number; day: number } | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(localDate);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return { year, month, day };
+}
+
 /**
- * 校验一个字符串是不是合法的业务日键。
+ * 严格的业务日键校验。
  *
- * 除了格式，还要反向验证一遍：像 "2026-02-30" 这种会被 Date 自动滚到 3 月 2 日，
- * 用 toDateKey 再转一次就会和原字符串不一致，从而被拒绝。
+ * 除了格式，还要反向验证：像 "2026-02-30" 会被 Date 自动滚到 3 月 2 日，
+ * 用 toDateKey 再转一次就和原串不一致，从而被拒绝。
  */
 export function isDateKey(value: unknown): value is string {
   if (typeof value !== 'string') return false;
@@ -68,19 +89,23 @@ export function isDateKey(value: unknown): value is string {
 }
 
 /**
- * 由「当前真实时间 + 日界」推导业务日。
+ * 业务日：本地时间 dayStartHour 点之前，仍属于前一个业务日。
  *
  * 做法：先构造「本地今天 dayStartHour 点」这个时间点。
- * - 当前时间 >= 它，说明已经过了今天的切换点，算今天；
- * - 否则说明还停留在昨晚的尾巴上，算昨天。
+ * - 当前时间 >= 它 → 已经过了今天的切换点，算今天；
+ * - 否则 → 还停留在昨晚的尾巴上，算昨天。
  *
- * 用本地构造器而不是「减去 N 毫秒」，是为了让夏令时那天的 23 小时也能算对。
+ * 用本地构造器而不是「减 N 毫秒」，是为了让夏令时那天也能算对。
+ * @param nowMs 当前时间戳（毫秒）
+ * @param dayStartHour 日界小时，0–23，来自 settings.day_start_hour
  */
-export function businessDate(nowMs: number, dayStartHour: number): string {
+export function businessDate(
+  nowMs: number,
+  dayStartHour: number = DEFAULT_DAY_START_HOUR,
+): string {
   const now = new Date(nowMs);
   const hour = clampDayStartHour(dayStartHour);
 
-  // 本地今天 hour 点整。若该钟点因夏令时不存在，JS 会自动顺延到下一个有效时刻
   const todayStartMs = new Date(
     now.getFullYear(),
     now.getMonth(),
@@ -88,7 +113,7 @@ export function businessDate(nowMs: number, dayStartHour: number): string {
     hour,
     0,
     0,
-    0
+    0,
   ).getTime();
 
   if (nowMs >= todayStartMs) return toDateKey(now);
@@ -99,9 +124,9 @@ export function businessDate(nowMs: number, dayStartHour: number): string {
 /**
  * 业务日加减 n 天。
  *
- * 用 Date.UTC 的日期序数做加法：UTC 没有夏令时，每天恒为 24 小时，
- * 所以 "2026-03-08 + 1 天" 在任何时区都稳定得到 "2026-03-09"。
- * 取 UTC 字段回写字符串，保证不会被本地时区偏移带跑。
+ * 用 Date.UTC 的日期序数做加法：UTC 每天恒为 24 小时，
+ * 所以「+1 天」在任何时区、任何夏令时切换日都稳定得到下一天。
+ * 取 UTC 字段回写字符串，保证不被本地时区偏移带跑。
  */
 export function addDays(key: string, n: number): string {
   const [y, m, d] = key.split('-').map(Number);
@@ -109,7 +134,7 @@ export function addDays(key: string, n: number): string {
   return `${t.getUTCFullYear()}-${pad2(t.getUTCMonth() + 1)}-${pad2(t.getUTCDate())}`;
 }
 
-/** 把日期键换成 UTC 日期序数（毫秒）。只用于做差，不参与任何业务判断 */
+/** 日期键转 UTC 日期序数（毫秒）。只用于做差，不参与业务判断 */
 function utcOrdinal(key: string): number {
   const [y, m, d] = key.split('-').map(Number);
   return Date.UTC(y, (m || 1) - 1, d || 1);
@@ -120,17 +145,16 @@ function utcOrdinal(key: string): number {
  *
  * 正数表示 b 比 a 晚，负数表示早，0 表示同一天。
  * 例：diffDays('2026-10-24', '2026-10-26') === 2。
- * 用 Math.round 吸收 UTC 序数必然的整日差，避免浮点误差。
  */
 export function diffDays(a: string, b: string): number {
   return Math.round((utcOrdinal(b) - utcOrdinal(a)) / MS_PER_UTC_DAY);
 }
 
 /**
- * ISO 星期：1 = 周一 ... 7 = 周日。
+ * ISO 星期：1 = 周一 … 7 = 周日。
  *
  * 数据库里 week_starts_on / weekly_days 用的都是这套编号，
- * 所以统一在这里转换，不要在外面临时用 getDay()（那是 0 = 周日）。
+ * 统一在这里转换，不要在外面临时用 getDay()（那是 0 = 周日）。
  */
 export function isoWeekday(key: string): number {
   const [y, m, d] = key.split('-').map(Number);
@@ -141,14 +165,12 @@ export function isoWeekday(key: string): number {
 /**
  * 所在业务周的起始日。
  *
- * weekStartsOn: 1 = 周一（默认，符合中国习惯），0 = 周日。
- * 先把 ISO 星期换算成「距离本周第一天过了几天」，再回退相应天数。
+ * weekStartsOn：1 = 周一（默认，符合中国习惯），0 = 周日。
+ * 先把 ISO 星期换算成「距本周第一天过了几天」，再回退相应天数。
  */
 export function startOfWeek(key: string, weekStartsOn: number = 1): string {
   const wd = isoWeekday(key); // 1..7
   const ws = weekStartsOn === 0 ? 0 : 1;
-  // 周一起始：周一偏移 0、周二偏移 1 …… 周日偏移 6
-  // 周日起始：周日偏移 0、周一偏移 1 …… 周六偏移 6
   const offset = ws === 1 ? wd - 1 : wd % 7;
   return addDays(key, -offset);
 }
@@ -156,8 +178,8 @@ export function startOfWeek(key: string, weekStartsOn: number = 1): string {
 /**
  * 该月有多少天。
  *
- * new Date(y, m, 0) 里的 m 是 1 基月份，传给构造器时正好是「下个月的第 0 天」，
- * 也就是本月最后一天。这个技巧不需要判断闰年，也不受时区影响（只取日期字段）。
+ * new Date(y, m, 0) 的 m 是 1 基月份，传进去正好是「下个月的第 0 天」，
+ * 也就是本月最后一天。不需要判断闰年。
  */
 export function daysInMonth(key: string): number {
   const [y, m] = key.split('-').map(Number);
@@ -173,7 +195,6 @@ export function dayOfMonth(key: string): number {
  * 业务日开始的那个真实时间点（本地毫秒）。
  *
  * 例：key = '2026-10-24'、dayStartHour = 4 → 2026-10-24 04:00:00.000（本地）。
- * 用本地构造器，夏令时当天也能得到正确的时间戳。
  */
 export function businessDayStartMs(key: string, dayStartHour: number): number {
   const d = dateFromKey(key);
@@ -184,14 +205,14 @@ export function businessDayStartMs(key: string, dayStartHour: number): number {
     clampDayStartHour(dayStartHour),
     0,
     0,
-    0
+    0,
   ).getTime();
 }
 
 /**
  * 业务日结束的那个真实时间点 = 下一个业务日的开始点。
  *
- * 注意不是「当天 23:59」：日界是 4 点时，10 月 24 日的业务日要一直持续到 10 月 25 日 04:00。
+ * 注意不是「当天 23:59」：日界为 4 点时，10 月 24 日的业务日要持续到 10 月 25 日 04:00。
  * 补记窗口就是从这个时间点往后算小时的（见 score.ts）。
  */
 export function businessDayEndMs(key: string, dayStartHour: number): number {
@@ -203,8 +224,8 @@ export function businessDayEndMs(key: string, dayStartHour: number): number {
  *
  * 规则：业务日只能前进，不能倒退。
  * - lastSettledDate 为空（首次启动）：直接采用真实业务日；
- * - 真实业务日比上次结算日还早：说明用户把系统时间调回去了，
- *   此时沿用 lastSettledDate，并把 clockBack 标记为 true，交给上层只做记录、不做惩罚。
+ * - 真实业务日比上次结算日还早：说明系统时间被调回去了，
+ *   沿用 lastSettledDate，并把 clockBack 标记为 true，由上层只做记录、不做惩罚。
  *
  * 为什么不在这里抛错：跨时区旅行、时区自动切换都可能让业务日短暂回退，
  * 抛错会误伤正常用户。这里只返回事实，决策交给调用方。
@@ -212,7 +233,7 @@ export function businessDayEndMs(key: string, dayStartHour: number): number {
 export function effectiveToday(
   nowMs: number,
   dayStartHour: number,
-  lastSettledDate: string | null | undefined
+  lastSettledDate: string | null | undefined,
 ): { today: string; clockBack: boolean } {
   const rawToday = businessDate(nowMs, dayStartHour);
 
@@ -220,10 +241,40 @@ export function effectiveToday(
     return { today: rawToday, clockBack: false };
   }
 
-  // diffDays(rawToday, lastSettledDate) > 0 表示上次结算日比「真实今天」更晚
+  // 上次结算日比真实今天更晚 → 时钟被调回去了
   if (diffDays(rawToday, lastSettledDate) > 0) {
     return { today: lastSettledDate, clockBack: true };
   }
 
   return { today: rawToday, clockBack: false };
+}
+
+/** 返回「周五」这样的星期标签；非法日期返回空串 */
+export function weekdayLabel(localDate: string): string {
+  if (!isDateKey(localDate)) return '';
+  // 用本地构造算星期，避免 new Date("YYYY-MM-DD") 被当成 UTC
+  const wd = isoWeekday(localDate);
+  return WEEKDAY_LABELS[wd % 7] ?? '';
+}
+
+/** 返回「10 月 24 日 周五」这样的中文日期标签 */
+export function formatDateLabel(localDate: string): string {
+  const parsed = parseLocalDate(localDate);
+  if (!parsed) return '';
+  const week = weekdayLabel(localDate);
+  return `${parsed.month} 月 ${parsed.day} 日${week ? ` ${week}` : ''}`;
+}
+
+/** 取本地小时（0–23），用于问候语 */
+export function hourOf(nowMs: number): number {
+  return new Date(nowMs).getHours();
+}
+
+/** 按本地小时给一句问候。语气克制，不催促 */
+export function greetingForHour(hour: number): string {
+  if (hour < 5) return '夜深了';
+  if (hour < 11) return '早';
+  if (hour < 14) return '中午好';
+  if (hour < 18) return '下午好';
+  return '晚上好';
 }

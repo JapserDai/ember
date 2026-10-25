@@ -8,8 +8,15 @@
     "userInterfaceStyle": "automatic",
     "android": {
       "package": "com.emberhabit.app",
+      "blockedPermissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ],
       "adaptiveIcon": {
-        "backgroundColor": "#FBF3EA",
+        "backgroundColor": "#EAE8E3",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -23,6 +30,10 @@
       "eas": {
         "projectId": "c04df615-493c-4225-8654-56c6eff467f9"
       }
-    }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite"
+    ]
   }
 }
