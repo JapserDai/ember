@@ -4,6 +4,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Card } from '../src/components/Card';
+import { PageTitle } from '../src/components/PageTitle';
 import { SEASONS } from '../src/content/stories';
 import { getNarrativeView, type NarrativeView } from '../src/services/narrative';
 import { useTheme } from '../src/theme/ThemeProvider';
@@ -20,7 +21,7 @@ import { useTheme } from '../src/theme/ThemeProvider';
  *
  * 底栏四个 tab 回答「今天要做什么」（D17）。叙事是**读**的，
  * 一个月看一两次。给它一个常驻 tab 等于把「看故事」抬到和「今天做什么」一样重。
- * 所以它从「回忆」页进去。
+ * 所以它从「日记」页进去（D49 起；那之前叫「回忆」页）。
  *
  * ---- 三条硬规矩（验收标准里写着）----
  *
@@ -28,6 +29,19 @@ import { useTheme } from '../src/theme/ThemeProvider';
  *   - Boss **没有死亡、没有失败惩罚**，一季没打完它不会变成「你输过」；
  *   - 剧情文本不出现「你失败了」（40 条内容全部过禁用词表）。
  */
+/**
+ * 四季 → 自然图案（D59）。
+ *
+ * 冬用云雨而不是雪：Lucide 里 `snowflake` 是一朵对称的晶体，
+ * 读起来像「冷」这个抽象概念而不是天气；云雨读得出「这一段是湿冷的」。
+ */
+const SEASON_MARK = {
+  spring: 'sprout',
+  summer: 'sun',
+  autumn: 'leaf',
+  winter: 'rain',
+} as const;
+
 export default function NarrativeScreen() {
   const { theme, palette } = useTheme();
   const insets = useSafeAreaInsets();
@@ -94,32 +108,20 @@ export default function NarrativeScreen() {
           </Text>
         </Pressable>
 
-        <Text
-          style={{
-            marginTop: theme.spacing.md,
-            fontSize: theme.typography.size.title,
-            lineHeight: theme.typography.lineHeight.title,
-            fontWeight: theme.typography.weight.semibold,
-            color: palette.text,
-            fontFamily: theme.typography.fontFamily.title,
-          }}
-        >
-          {seasonName}
-        </Text>
-
-        {view ? (
-          <Text
-            style={{
-              marginTop: theme.spacing.xs,
-              fontSize: theme.typography.size.body,
-              lineHeight: theme.typography.lineHeight.body,
-              color: palette.textMuted,
-              fontFamily: theme.typography.fontFamily.body,
-            }}
-          >
-            这一季讲的是{seasonTheme}。
-          </Text>
-        ) : null}
+        {/*
+         * 四季各配一个自然图案（D59）：春 = 芽、夏 = 太阳、秋 = 叶、冬 = 云雨。
+         *
+         * 这是全 App 唯一一页**图形随数据变**的地方，而且它变得有道理——
+         * 四季本身就是自然。其余页面的图形是固定的（那是页面的标记，
+         * 不是数据的映射）。
+         */}
+        <View style={{ marginTop: theme.spacing.md }}>
+          <PageTitle
+            title={seasonName}
+            mark={SEASON_MARK[view?.season ?? 'spring']}
+            subtitle={view ? `这一季讲的是${seasonTheme}。` : undefined}
+          />
+        </View>
       </View>
 
       {error ? (

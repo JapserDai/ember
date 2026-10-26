@@ -19,7 +19,7 @@ import { useTheme } from '../theme/ThemeProvider';
  *
  * 早先这一页是一张通栏的卡、行与行之间画发丝线。现在每行各占一张卡——
  * 与「每一条数据都要框起来」同一套语言。留在同一张卡里的只有
- * QuickStart 那三个模板，因为那三个是同一件事的三个选项。
+ * 主题选择页那几张预览卡，因为那几张是同一件事的几个选项。
  */
 
 export type SettingsRowState = 'interactive' | 'readonly' | 'later';

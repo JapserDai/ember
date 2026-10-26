@@ -810,3 +810,88 @@ CREATE TABLE IF NOT EXISTS journal_entries (
 
 /** 13 → 14：加 journal_entries 表（每天写一句） */
 export const MIGRATE_V13_TO_V14_SQL = JOURNAL_ENTRIES_TABLE_SQL;
+
+// ============================================================
+// 迁移 15：商店从「只卖材料」扩成三类（D53）
+// ============================================================
+
+/**
+ * 15 → 16：player 加三个「持有物」列。
+ *
+ * ---- 为什么是三个计数列，而不是一张 inventory 表 ----
+ *
+ * 与 v10→v11 加 `refined_material` 同一条理由：这一版的持有物只有三种，
+ * 每种的语义都是「你还有几个」，是**一个数字**。开一张 inventory 表会多一个
+ * JOIN、多一个「这个玩家怎么没有 inventory 行」的非法状态要防，
+ * 而现在没有任何一个查询需要「持有物列表」这个形状。
+ *
+ * 等真的需要「物品种类」（比如不同活动掉不同东西）时再开表——
+ * 那时要记的是 `item_def_id`，是另一套字段，迁移一次就够。
+ *
+ * ---- 三列各是什么 ----
+ *
+ *   grace_tickets   宽限券的**补货**。连胜那边每月自动发 1–3 张（按难度），
+ *                   商店卖的是额外补的。上限 5 张，超过就不卖了（见 domain/shop.ts）。
+ *   streak_shields  连胜护盾：**一天**的自动保护。与宽限券的区别：
+ *                   宽限券是月度配给、自动消耗；护盾是花钱买的、要手动点。
+ *   restore_tokens  回看券：把一条**已经断掉的连胜**接回来，代价比修复低，
+ *                   因为它只接续、不重算历史。
+ *
+ * 三列都是纯加法、默认 0 —— 老库升级上来是「一个都没有」，
+ * 这是真实情况，升级不替任何人补。
+ */
+export const MIGRATE_V14_TO_V15_SQL = `
+ALTER TABLE player ADD COLUMN grace_tickets INTEGER NOT NULL DEFAULT 0
+  CHECK (grace_tickets >= 0);
+ALTER TABLE player ADD COLUMN streak_shields INTEGER NOT NULL DEFAULT 0
+  CHECK (streak_shields >= 0);
+ALTER TABLE player ADD COLUMN restore_tokens INTEGER NOT NULL DEFAULT 0
+  CHECK (restore_tokens >= 0);
+`;
+
+/**
+ * 15 → 16：settings 加两列 `home_prefs`（首页偏好，D62）与 `journal_prefs`（日记偏好，D65）。
+ *
+ * 两列都是同一列 JSON 的思路、同一条迁移。为什么不拆成 v16 与 v17：
+ * v16 从来没有出过包（这一版还在开发中），它不属于「已发布迁移」，
+ * 所以可以改；而拆两条迁移会让「同一件事的两半」散在两个版本号里。
+ *
+ * 一列 JSON 而不是五列布尔/整数。理由：
+ *   1. 这五件事（月历 / 火带 / 左滑提示 / 待办条数）**是同一个对象**——
+ *      「首页长什么样」。拆成五列之后，将来加第六项要再改一次 CHECK 与白名单；
+ *   2. 它们全部是**界面偏好**，没有任何一列参与结算、查询条件或索引。
+ *      一个从不被 WHERE 引用的列，拆细没有收益；
+ *   3. 读的时候解析失败就退回默认值（见 `services/homePrefs.ts`），
+ *      所以这一列的内容坏了不会让首页白屏——这正是它能被当成一个整体的前提。
+ *
+ * 默认值 `'{}'` 表示「全用代码里的默认」：老库升级上来是 `{}`，
+ * 于是所有人升级之后看到的首页与升级前完全一致，这是有意的。
+ */
+export const MIGRATE_V15_TO_V16_SQL = `
+ALTER TABLE settings ADD COLUMN home_prefs TEXT NOT NULL DEFAULT '{}';
+`;
+
+/**
+ * 16 → 17：settings 加一列 `journal_prefs`（日记偏好，D65）。
+ *
+ * ---- 为什么它是独立的一条，而不是并进 v16 ----
+ *
+ * 我一开始把它并进了 v16，理由是「v16 从未出过包，不算已发布迁移」。
+ * 那个理由**是错的**：判断标准不是「有没有出包」，而是**有没有在任何数据库上
+ * 执行过**。而我的开发库当时已经到 v16 了。
+ *
+ * 后果很具体：迁移器看到 `user_version = 16` 就直接返回，那一列永远不会被加上，
+ * 于是每一次读 settings 都报 `no such column: journal_prefs`——
+ * 日结算、宽限券、月度奖励、连胜、日记、首页偏好，整个 App 每一页都读不出数据。
+ *
+ * 这正是 D31 立下的规矩：**已经发布过的迁移函数永远不修改，只能在数组末尾追加**。
+ *
+ * ---- 测试为什么没拦住 ----
+ *
+ * 所有套件都建**全新库**，全新库跑完整的迁移链，两列都会加上。
+ * 要拦住这一类，需要一个「在旧版本库上继续升级」的测试——
+ * `migrate6-test` 就是那种写法（手工造一个 v5 的库，再跑 migrate）。
+ */
+export const MIGRATE_V16_TO_V17_SQL = `
+ALTER TABLE settings ADD COLUMN journal_prefs TEXT NOT NULL DEFAULT '{}';
+`;

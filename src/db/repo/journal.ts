@@ -13,6 +13,25 @@
  */
 import { getDb } from '../client';
 
+/**
+ * 某段业务日内写过的日记日期（闭区间）。
+ *
+ * 日历只需要「哪几天写过」，不需要正文。用一条 `SELECT local_date` +
+ * `BETWEEN` 而不是先 `listJournalEntries(400)` 再在内存里筛：
+ * 后者在写了两年之后会漏掉更早的那几个月，而漏掉的表现是「日历上一个点都没有」——
+ * 一种看起来完全正常的错误。
+ */
+export function listJournalDatesInRange(startDate: string, endDate: string): string[] {
+  const rows = getDb().getAllSync<{ local_date: string }>(
+    `SELECT local_date
+       FROM journal_entries
+      WHERE local_date BETWEEN ? AND ?
+      ORDER BY local_date ASC`,
+    [startDate, endDate]
+  );
+  return rows.map((row) => row.local_date);
+}
+
 /** 表的一行，字段名与数据库列一一对应 */
 export interface JournalEntryRow {
   local_date: string;
@@ -45,6 +64,27 @@ export function listJournalEntries(limit: number = 60): JournalEntryRow[] {
       ORDER BY local_date DESC
       LIMIT ?`,
     [Math.max(1, Math.trunc(limit))]
+  );
+}
+
+/**
+ * 比某一天**更早**的日记（「看全部」页的翻页用）。
+ *
+ * 用「日期小于游标」而不是 `OFFSET`：
+ *   - 主键就是日期，`WHERE local_date < ?` 直接走主键索引，不用扫前 N 行；
+ *   - 翻页期间在别处改了一条日记不会让分页错位（OFFSET 会因为行数变化跳条）；
+ *   - 日期是字符串且格式固定（`YYYY-MM-DD`），字典序就是时间序。
+ *
+ * `beforeDate` 传空串等于「从最新的一条开始」——空串的字典序小于任何日期。
+ */
+export function listJournalEntriesBefore(beforeDate: string, limit: number = 60): JournalEntryRow[] {
+  return getDb().getAllSync<JournalEntryRow>(
+    `SELECT local_date, body, created_at, updated_at
+       FROM journal_entries
+      WHERE local_date < ?
+      ORDER BY local_date DESC
+      LIMIT ?`,
+    [beforeDate, Math.max(1, Math.trunc(limit))]
   );
 }
 

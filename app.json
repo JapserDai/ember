@@ -3,6 +3,7 @@
     "name": "Ember",
     "slug": "ember",
     "version": "0.0.1",
+    "scheme": "ember",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",

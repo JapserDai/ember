@@ -30,6 +30,8 @@
   --primary-wash: #eef3fc;
   --rule: rgba(50, 49, 48, 0.12);
   --rule-strong: rgba(50, 49, 48, 0.2);
+  /* 与 App 的 palette.danger 同值（#A4262C）。只用于「删」这一种动作 */
+  --danger: #a4262c;
 
   /* 字体 */
   --serif: "Songti SC", "Source Han Serif SC", "Noto Serif CJK SC",
@@ -754,4 +756,90 @@ h1 {
 .foot-fine {
   max-width: 40rem;
   line-height: 1.75;
+}
+
+/* ---- 待办（D55：只有文字，右滑露出「删」） ---- */
+
+.demo-todo-title {
+  margin: 1.25rem 0 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.todo-list {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+}
+
+/*
+ * 一行待办 = 一个「窗口 + 内容」的容器。
+ * 内容用 transform 往右推，左边露出下面的「删」——与 App 的
+ * SwipeToDelete 同一个办法（那里是 translateX + 吸附）。
+ */
+.todo {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--rule);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.todo:last-child {
+  border-bottom: none;
+}
+
+/* 底下那一层：红色「删」。它一直在，内容推开才露出来 */
+.todo-delete {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: var(--danger);
+  color: #fff;
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+/* 内容层：手指往右推它就跟着走 */
+.todo-body {
+  position: relative;
+  background: var(--surface);
+  padding: 0.85rem 0;
+  transition: transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  touch-action: pan-y;
+}
+
+.todo.open .todo-body {
+  transform: translateX(4.5rem);
+}
+
+.todo.dragging .todo-body {
+  transition: none;
+}
+
+.todo-title {
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.todo-meta {
+  margin-top: 0.1rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--ink-muted);
+}
+
+.todo-meta.overdue {
+  color: var(--danger);
 }

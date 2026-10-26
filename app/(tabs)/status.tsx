@@ -1,21 +1,16 @@
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { PageTitle } from '../../src/components/PageTitle';
 import { Card } from '../../src/components/Card';
 import { countCheckinsInRange } from '../../src/db/repo/checkins';
-import { getPlayerSnapshot, type PlayerSnapshot } from '../../src/db/repo/player';
-import {
-  ATTRIBUTE_KEYS,
-  ATTRIBUTE_LABEL,
-  ATTR_POINTS_MAX,
-  ATTR_XP_PER_POINT,
-  MAX_LEVEL,
-  xpToNextLevel,
-} from '../../src/domain/balance';
-import { addDays, businessDate } from '../../src/domain/date';
-import { highestTitles, nextTitles, titleProgress, TITLES } from '../../src/domain/titles';
+import { getPlayerSnapshot } from '../../src/db/repo/player';
+import { ATTR_LEVEL_XP, buildStatusView, type StatusView } from '../../src/domain/status';
+import { MAX_LEVEL, type AttributeKey } from '../../src/domain/balance';
+import { businessDate } from '../../src/domain/date';
+import { getSafeDayStartHour } from '../../src/services/today';
 import { useTheme } from '../../src/theme/ThemeProvider';
 
 /**
@@ -41,18 +36,12 @@ import { useTheme } from '../../src/theme/ThemeProvider';
  *
  * 数据一个字段都没改，只是读取它们的地方多了一页。
  *
- * ---- 属性等级怎么算（这一条最容易误会）----
+ * ---- 装配逻辑不在这里 ----
  *
- * 人升的属性 LV 是「这一维自己的等级」。Ember 存了两列：
- *   - `points`：每满 `ATTR_XP_PER_POINT`（200）点属性经验换来的**累计点数**；
- *   - `xp`：不够 200 的**余数**。
- *
- * 所以「这一维的总经验」= `points × 200 + xp`，而等级 = `points + 1`
- * （0 点就是 1 级）。**这不是新加的数值**，只是把已有的两列按人升的方式
- * 重新读一遍——不需要迁移，也不会改变任何结算。
- *
- * 显示上的 `xp / 200` 用的是余数，与进度条同一个口径：
- * 进度条走满的那一下，正好是「攒够 200、换成 1 点」的那一下。
+ * 等级与属性的读法（分母是本级总需、LV = points + 1、总分 = points × 200 + xp）
+ * 全部在 `src/domain/status.ts`。**纯函数放在 domain 是有原因的**：
+ * 留在页面里的话，要验证它就得连带拉进 react-native 与 expo-router，
+ * 仓库外那套 Node 测试就测不到——第一版就是这么漏掉一个分母错误的。
  *
  * ---- D7：这些数字不参与任何计分 ----
  *
@@ -66,91 +55,28 @@ import { useTheme } from '../../src/theme/ThemeProvider';
  * 而用户会把它当成真的（断签后绝不出现 0，是同一套规矩）。
  */
 
-/** 属性行要的全部数据 */
-interface AttributeRow {
-  key: (typeof ATTRIBUTE_KEYS)[number];
-  label: string;
-  /** 这一维的等级。0 点 = 1 级 */
-  level: number;
-  /** 不够 200 的余数 */
-  xp: number;
-  /** 已攒够的整点数（0–99） */
-  points: number;
-  /** 进度条：余数 / 200 */
-  progress: number;
-}
-
-/** 状态页需要的全部数据 */
-interface StatusView {
-  level: number;
-  xpInLevel: number;
-  /** 升到下一级还要多少。满级是 0 */
-  xpForNext: number;
-  /** 进度条：级内进度 / 本级所需 */
-  xpProgress: number;
-  /** 累计记录次数（有效打卡，含撤销掉的？不含——撤销的 status 不是 active） */
-  totalRecords: number;
-  attributes: AttributeRow[];
-  /** 已拿到的称号名（每维只取最高的那一档） */
-  earnedTitles: string[];
-  /** 下一档称号的提示。全都拿满时是空数组 */
-  nextTitleHints: Array<{ label: string; remaining: number }>;
-  /** 已解锁 / 总数，只用于页尾一行小字 */
-  unlockedTitles: number;
-  totalTitles: number;
-}
-
 /**
- * 从玩家快照装配这一页。
+ * 五维 → 自然色（D59）。
  *
- * 纯读，没有任何写操作。抽成函数是为了让它能被仓库外的测试直接调用
- * （那套测试跑在 Node 里，不渲染 React）。
+ *   体魄  leaf  长出来的
+ *   心智  sky   想远的
+ *   秩序  sun   照进来的
+ *   心力  earth 沉下去的
+ *   联结  petal 开出来的
+ *
+ * 只用于**进度条填充**，不用于文字：这五个颜色没有一个能在白底上过 4.5:1。
  */
-export function buildStatusView(player: PlayerSnapshot, totalRecords: number): StatusView {
-  const attributes: AttributeRow[] = ATTRIBUTE_KEYS.map((key) => {
-    const attr = player.attributes[key];
-    // 点数在库里没有 99 的上限约束（只有代码里的钳制），这里再兜一次：
-    // 脏数据不该把进度条撑到 100% 以上。
-    const points = Math.min(ATTR_POINTS_MAX, Math.max(0, Math.trunc(attr.points)));
-    const xp = Math.max(0, Math.trunc(attr.xp));
-    return {
-      key,
-      label: ATTRIBUTE_LABEL[key],
-      level: points + 1,
-      xp,
-      points,
-      progress: Math.min(1, xp / ATTR_XP_PER_POINT),
-    };
-  });
-
-  const pointsMap = {} as Record<(typeof ATTRIBUTE_KEYS)[number], number>;
-  for (const key of ATTRIBUTE_KEYS) {
-    pointsMap[key] = Math.min(ATTR_POINTS_MAX, Math.max(0, player.attributes[key].points));
-  }
-
-  const xpForNext = xpToNextLevel(player.level, player.xpInLevel);
-  const xpProgress = xpForNext > 0 ? Math.min(1, player.xpInLevel / xpForNext) : 1;
-
-  return {
-    level: player.level,
-    xpInLevel: player.xpInLevel,
-    xpForNext,
-    xpProgress,
-    totalRecords: Math.max(0, Math.trunc(totalRecords)),
-    attributes,
-    earnedTitles: highestTitles(pointsMap).map((title) => title.name),
-    nextTitleHints: nextTitles(pointsMap)
-      .slice(0, 3)
-      .map((item) => ({ label: ATTRIBUTE_LABEL[item.title.attribute], remaining: item.remaining })),
-    unlockedTitles: titleProgress(pointsMap).unlocked,
-    totalTitles: TITLES.length,
-  };
-}
+const ATTRIBUTE_INK: Record<AttributeKey, 'leaf' | 'sky' | 'sun' | 'earth' | 'petal'> = {
+  body: 'leaf',
+  mind: 'sky',
+  order: 'sun',
+  spirit: 'earth',
+  bond: 'petal',
+};
 
 export default function StatusScreen() {
   const { theme, palette } = useTheme();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
 
   const [view, setView] = useState<StatusView | null>(null);
   const [lastGood, setLastGood] = useState<StatusView | null>(null);
@@ -166,9 +92,14 @@ export default function StatusScreen() {
        * 为什么用 `countCheckinsInRange` 而不是 `COUNT(*)`：
        * 撤销掉的打卡 `status = 'reversed'`，它们不该算进「我一共记录了多少次」——
        * 撤销的意思是「那次不算」，这与 D21 的现算口径一致。
+       *
+       * 为什么「今天」走 `getSafeDayStartHour()` 而不是写死 4：
+       * 日界是用户可调的（设置 → 节奏）。写死 4 的话，把日界改成 0 点或 6 点的人
+       * 在凌晨那几个小时会漏算当天的记录——这是全项目唯一一处绕过「日界唯一入口」的写法，
+       * 已经改回来了。
        */
       const start = '0000-01-01';
-      const end = addDays(businessDate(Date.now(), 4), 0);
+      const end = businessDate(Date.now(), getSafeDayStartHour());
       const total = countCheckinsInRange(start, end);
 
       const next = buildStatusView(player, total);
@@ -199,29 +130,11 @@ export default function StatusScreen() {
       }}
       showsVerticalScrollIndicator={false}
     >
-      <Text
-        style={{
-          fontSize: theme.typography.size.title,
-          lineHeight: theme.typography.lineHeight.title,
-          fontWeight: theme.typography.weight.semibold,
-          color: palette.text,
-          fontFamily: theme.typography.fontFamily.title,
-        }}
-      >
-        状态
-      </Text>
-
-      <Text
-        style={{
-          marginTop: theme.spacing.md,
-          fontSize: theme.typography.size.body,
-          lineHeight: theme.typography.lineHeight.body,
-          color: palette.textMuted,
-          fontFamily: theme.typography.fontFamily.body,
-        }}
-      >
-        这些是读数，不是评价。它们只记录你把时间花在哪儿了。
-      </Text>
+      <PageTitle
+        title="状态"
+        mark="sprout"
+        subtitle="这些是读数，不是评价。它们只记录你把时间花在哪儿了。"
+      />
 
       {/* 读不出来时说一句实话，而不是画一排 0 */}
       {error ? (
@@ -264,7 +177,7 @@ export default function StatusScreen() {
                   fontVariant: ['tabular-nums'],
                 }}
               >
-                {data.xpForNext > 0 ? `${data.xpInLevel} / ${data.xpForNext}` : '满级'}
+                {data.xpLevelTotal > 0 ? `${data.xpInLevel} / ${data.xpLevelTotal}` : '满级'}
               </Text>
             </View>
 
@@ -354,7 +267,7 @@ export default function StatusScreen() {
                     </Text>
                   </View>
 
-                  <Meter progress={attr.progress} />
+                  <Meter progress={attr.progress} color={palette.nature[ATTRIBUTE_INK[attr.key]]} />
 
                   <Text
                     style={{
@@ -366,7 +279,7 @@ export default function StatusScreen() {
                       fontVariant: ['tabular-nums'],
                     }}
                   >
-                    {attr.xp} / {ATTR_XP_PER_POINT}
+                    {attr.xp} / {ATTR_LEVEL_XP}
                   </Text>
                 </View>
               ))}
@@ -381,7 +294,7 @@ export default function StatusScreen() {
                 fontFamily: theme.typography.fontFamily.body,
               }}
             >
-              每 {ATTR_XP_PER_POINT} 点属性经验换 1 点，点数攒成等级。
+              每 {ATTR_LEVEL_XP} 点属性经验换 1 点，点数攒成等级。
               它不影响任何数值，只记录你把时间花在哪儿了。
             </Text>
           </View>
@@ -402,6 +315,11 @@ export default function StatusScreen() {
             </Text>
 
             <Card>
+              {/*
+               * 两层（D52）：五维那一层是「你的时间花在哪儿」，
+               * 旅程那一层是「你一共走了多远」。分开写，不混成一句，
+               * 因为两者的量纲不同（见 domain/titles.ts 文件头）。
+               */}
               {data.earnedTitles.length > 0 ? (
                 <Text
                   style={{
@@ -411,7 +329,7 @@ export default function StatusScreen() {
                     fontFamily: theme.typography.fontFamily.body,
                   }}
                 >
-                  已经拿到：{data.earnedTitles.join('、')}
+                  五维：{data.earnedTitles.join('、')}
                 </Text>
               ) : (
                 <Text
@@ -422,9 +340,24 @@ export default function StatusScreen() {
                     fontFamily: theme.typography.fontFamily.body,
                   }}
                 >
-                  称号会随着某一维的点数慢慢出来。不用特意去拿。
+                  五维的称号会随着某一维的点数慢慢出来。不用特意去拿。
                 </Text>
               )}
+
+              {/* 旅程那一条：等级是单条轴，所以只写一个名字 + 一个下一档 */}
+              <Text
+                style={{
+                  marginTop: theme.spacing.sm,
+                  fontSize: theme.typography.size.body,
+                  lineHeight: theme.typography.lineHeight.body,
+                  color: palette.text,
+                  fontFamily: theme.typography.fontFamily.body,
+                }}
+              >
+                {data.journeyTitle
+                  ? `旅程：${data.journeyTitle}`
+                  : '旅程：走到 LV.10 会有一个名字。'}
+              </Text>
 
               {data.nextTitleHints.length > 0 ? (
                 <Text
@@ -442,31 +375,28 @@ export default function StatusScreen() {
                 </Text>
               ) : null}
 
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="看全部称号"
-                  onPress={() => router.push('/titles')}
-                  style={({ pressed }) => ({
-                    marginTop: theme.spacing.sm,
-                    minHeight: theme.touchTarget,
-                    justifyContent: 'center',
-                    opacity: pressed ? 0.55 : 1,
-                  })}
+              {data.nextJourneyHint ? (
+                <Text
+                  style={{
+                    marginTop: 2,
+                    fontSize: theme.typography.size.caption,
+                    lineHeight: theme.typography.lineHeight.body,
+                    color: palette.textMuted,
+                    fontFamily: theme.typography.fontFamily.body,
+                  }}
                 >
-                  <Text
-                    style={{
-                      fontSize: theme.typography.size.label,
-                      lineHeight: theme.typography.lineHeight.label,
-                      fontWeight: theme.typography.weight.medium,
-                      color: palette.primary,
-                      fontFamily: theme.typography.fontFamily.body,
-                    }}
-                  >
-                    看全部称号
-                  </Text>
-                </Pressable>
-              </View>
+                  再走 {data.nextJourneyHint.remaining} 级到「{data.nextJourneyHint.name}」。
+                </Text>
+              ) : null}
+
+              {/*
+               * 这里**不放**「看全部称号」的入口。
+               *
+               * 称号图鉴的入口只有一个：「我的」页那张称号卡上的「看看全部」。
+               * 状态页是「读数」，回答「我现在是什么样」；图鉴是「目录」，
+               * 回答「一共有哪些、我还差什么」。同一件事给两个入口，
+               * 用户会在两个地方各点一次，然后不确定哪个才是「全部」。
+               */}
             </Card>
 
             {/* 进度只在这里一行小字，不做成进度条：那是要填满的东西 */}
@@ -477,6 +407,7 @@ export default function StatusScreen() {
                 lineHeight: theme.typography.lineHeight.body,
                 color: palette.textMuted,
                 fontFamily: theme.typography.fontFamily.body,
+                fontVariant: ['tabular-nums'],
               }}
             >
               {data.unlockedTitles} / {data.totalTitles} 个称号。
@@ -510,7 +441,22 @@ export default function StatusScreen() {
  * 与「我的」页原来那个 `Meter` 同一个形状（D29 的 Fluent 语汇）：
  * 底是边框色，前景是主色，圆角。宽度按 0–1 的比例。
  */
-function Meter({ progress }: { progress: number }) {
+/**
+ * 一条进度条。
+ *
+ * `color` 可选：五维各用自己的自然色（D59），等级那条仍用主色。
+ *
+ * ---- 为什么五维要各给一个颜色 ----
+ *
+ * 五条进度条原来长得一模一样（都是 `palette.primary`），读者只能靠名字分
+ * 「这一条是哪一维」。给了颜色之后，**「哪一维满了」在扫视时就成立**——
+ * 这是信息，不是装饰。
+ *
+ * 为什么用自然色而不是五个随便挑的颜色：这五维本来就是「你把时间花在哪儿」，
+ * 而它们各自对应一类事（身体 / 读书 / 收拾 / 安静 / 联系别人），
+ * 自然色比一套无意义的色轮更说得通。
+ */
+function Meter({ progress, color }: { progress: number; color?: string }) {
   const { theme, palette } = useTheme();
   const clamped = Math.min(1, Math.max(0, Number.isFinite(progress) ? progress : 0));
   return (
@@ -528,7 +474,7 @@ function Meter({ progress }: { progress: number }) {
           width: `${clamped * 100}%`,
           height: '100%',
           borderRadius: 2,
-          backgroundColor: palette.primary,
+          backgroundColor: color ?? palette.primary,
         }}
       />
     </View>

@@ -13,9 +13,30 @@
  *
  * 与 `REVIEW_FREE_MAX`（200）不同：那是一个问题和自由输入的上限，
  * 这里是「一整天想说的话」，给得宽一些。但也不能无限——
- * 它是存进 SQLite 的一列，且要为「回忆页的历史列表只显示首行」留出余地。
+ * 它是存进 SQLite 的一列，且要为「日记页的历史列表只显示首行」留出余地。
+ *
+ * ---- D65 起它不再是一个常数，而是三档可选的默认值 ----
+ *
+ * 用户在「设置 → 日记」里可以选 500 / 2000 / 5000。这个常量仍然是
+ * **默认值**与**兜底值**：`normalizeJournalBody` 收一个可选的上限参数，
+ * 不传时就用它。这样：
+ *   1. 纯函数仍然可测（不依赖库）；
+ *   2. 任何忘了传上限的调用点，行为与 D65 之前完全一致。
+ *
+ * 为什么不把上限做成一个全局可变变量：`domain` 层不许有状态（HANDOFF §2.3），
+ * 而一个「读一次就变」的模块级变量会让同一次运行里的不同调用点
+ * 用不同的上限——那种 bug 只会在用户改完设置之后才出现。
  */
 export const JOURNAL_MAX = 2000;
+
+/**
+ * 允许用户把上限调到多高。
+ *
+ * 5000 而不是无限：一天的日记写 5000 字已经远超「一句话就够」的定位，
+ * 而再往上会让备份文件与历史列表的摘要计算都变得没必要地重。
+ * 这也是 `domain/journalPrefs.ts` 里那三档选项的上界。
+ */
+export const JOURNAL_MAX_HARD = 5000;
 
 /**
  * 规范化一段日记。
@@ -32,7 +53,7 @@ export const JOURNAL_MAX = 2000;
  * 这是用户自己写的字。与 `domain/review.ts` 的立场一致——
  * 禁用词表管的是 **App 说的话**，不管用户说的话。
  */
-export function normalizeJournalBody(input: unknown): string {
+export function normalizeJournalBody(input: unknown, maxLength: number = JOURNAL_MAX): string {
   if (typeof input !== 'string') return '';
 
   const cleaned = input
@@ -40,10 +61,26 @@ export function normalizeJournalBody(input: unknown): string {
     .replace(/\n{3,}/g, '\n\n') // 三个以上换行 → 一个空行
     .trim();
 
-  // 按字符截断。JS 的字符串长度对中文是「字数」，对 emoji 是代理对，
-  // 极端情况下可能切在半截——但 2000 字的上限下，这个代价可接受，
-  // 而按码点切会让上限的解释变复杂（用户数的是字）。
-  return cleaned.slice(0, JOURNAL_MAX);
+  /*
+   * 按**码点**截断，不按 `slice` 的码元。
+   *
+   * emoji 在 JS 里占两个码元，`slice(0, 2000)` 正好切在中间时会留下一个
+   * 孤立代理字符——它存进 SQLite、再读出来显示成一个 `�`，而用户看到的是
+   * 「我写的东西坏了」。`domain/profile.ts` 的名字长度也是按码点数，
+   * 这里跟着它走，两处口径一致。
+   *
+   * 代价：`TextInput` 的 `maxLength` 按码元算，所以理论上可以多打半个 emoji，
+   * 保存时被这里截掉。那是「截断」而不是「产生坏字符」，可以接受。
+   */
+  const codePoints = Array.from(cleaned);
+  // 上限先钳到 [1, JOURNAL_MAX_HARD]：传 0 或负数会让「一天的日记」变成空串，
+  // 传一个天文数字会让 SQLite 里塞进一段不该塞的东西
+  const limit = Number.isFinite(maxLength)
+    ? Math.min(JOURNAL_MAX_HARD, Math.max(1, Math.trunc(maxLength)))
+    : JOURNAL_MAX;
+  return codePoints.length > limit
+    ? codePoints.slice(0, limit).join('')
+    : cleaned;
 }
 
 /**

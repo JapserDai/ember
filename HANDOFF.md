@@ -13,7 +13,7 @@
 用户是近乎零基础的自学者，靠 AI 写代码。**所有代码注释、所有文档、所有界面文案必须是中文。**
 
 **当前进度**：阶段 0–5 **全部完成**；阶段 6 完成 **7/9**（只剩「商店截图」与「真机手测」——两件都只差一台真机）。
-**代码状态**（2026-10-27 实测）：`tsc` **0 错误**、`expo export` **通过**（3.4MB .hbc）、`npx expo start` 起得来、仓库外 **414 项断言全绿**（14 个套件）。
+**代码状态**（2026-10-27 实测）：`tsc` **0 错误**、`expo export` **通过**（3.5MB .hbc）、`npx expo start` 起得来、仓库外 **1163 项断言全绿**（21 个套件）。
 
 **2026-10-26 上一轮（D48 / D49）**：底栏从「今天/目标/回忆/我的」改成「**今天/状态/日记/我的**」。
 「目标」换成照抄人升（LifeUp）的「**状态**」页（人生等级 + 五维属性条 + 称号），目标降为二级页（入口在「我的」）；
@@ -21,7 +21,34 @@
 **五维是从「我的」页搬到了「状态」页，不是删掉**——数据、称号、猜属性规则一个字段都没动。
 **最大的缺口**：**从头到尾没在真机上点过一次。** 所有验证都是逻辑层 + 打包层。这一轮新增的三个功能里有三个只在真机上才成立的点（`react-native-view-shot` 原生模块是否链上、卡片截图中文是否截断、通知与权限的实际表现），`expo export` 与断言都证明不了它们。
 
-**2026-10-27 这一轮（D50）**：**品牌记号换成「一朵小火花」**。旧的 `assets/icon.png` 是一个发光的蓝色「Λ」（语义是「上升」，不是「火」），
+**2026-10-27 这一轮（D59）**：**主题从四套砍到两套（白 / 夜航），并给每个页面加了彩色元素**。
+新增 `palette.nature`（六个自然色）+ `palette.natureTint`（洗色）+ `domain/natureMarks.ts`（六个图案，坐标搬 Lucide）
++ 一条自己画的五段彩虹 + `components/NatureMark.tsx` + `components/PageTitle.tsx`。
+每页一个图案且与该页语义对上（状态=芽、日记=太阳、我的=彩虹、商店=花、称号=地球、统计=云雨、复盘=叶、叙事=四季）。
+五维进度条各给一个自然色。**待办页（今天）零改动**——这是用户明确要求，`nature-test` 有四条断言盯着。
+苔原 / 晨光的色板已删，但 `settings.theme_id` 的 CHECK **没动**（D31），旧值由 `PALETTE_ALIASES` 映射到白。
+
+**2026-10-27 上一轮（D53）**：**商店从「只卖材料」扩成四类六件 + 自定义奖励**。
+材料 / 精炼 / 保护（护盾 + 宽限券补货）/ 回看，外加「用户自己写、自己标价、点兑换」的自定义奖励
+（docs/01 采纳人升的那一条，数据层早就有 `tasks.type='reward'` + `ember_cost`，只差界面）。
+迁移 **v14→v15** 加 `grace_tickets` / `streak_shields` / `restore_tokens` 三列，**三列都进了备份白名单**。
+合成改成「一次合到底」。商品图形搬 Lucide（`domain/shopMarks.ts` + `components/ShopMark.tsx`）。
+**踩到的坑**：`svgpath` 的 `abs()` 不把 `H`/`V` 转成 `L`，转换器漏了它们导致四条路径被切歪——
+已修，并写进 `fetch-lucide-marks.ts` 的注释。
+
+**2026-10-27 上一轮（D52）**：**称号分两层 + 每个称号有了图形**。
+属性称号（原有 15 个，五维 × 三档）不动；新增**旅程称号 5 个**（人生等级 10/20/30/40/50），回答「你一共走了多远」。
+图形**搬 Lucide**（ISC 许可，可商用），不是手绘：`scripts/fetch-lucide-marks.ts` 从 `lucide-static@1.61.0`
+拉图标、用 `svgpath` 转成项目规矩（绝对命令 + 圆弧变贝塞尔）后抄进 `src/domain/titleMarks.ts`。
+五只：`beaker`（体魄）/ `book-open`（心智）/ `archive`（秩序）/ `moon`（心力）/ `users`（联结）。
+**档位有两种表达**：体魄与秩序是真容器，画**水位**；其余三只画**浓度**（0.55 / 0.8 / 1）。
+组件 `components/TitleMark.tsx`，验形 `scripts/preview-title-marks.ts`。
+图鉴页从 **20 张竖排卡压到 6 张卡**（五维每维一张、三档并排可直接比）。
+**零迁移、不存库**，仍全部现算。
+**为什么搬而不画**：第一版手绘的五只容器被真图推翻三次——锅的圆弧底让矩形水位悬空、
+抽屉的盖让满档水面留白缝、碗与锅在 26px 下分不清。已写成断言（`titles-test`）防止改回去。
+
+**2026-10-27 上一轮（D50）**：**品牌记号换成「一朵小火花」**。旧的 `assets/icon.png` 是一个发光的蓝色「Λ」（语义是「上升」，不是「火」），
 底栏「今天」是一簇火苗，落地页顶栏是一支描边的小火苗——**同一件事画了三遍**。现在形状只在 `src/domain/spark.ts` 写一次：
 界面走 `components/SparkMark`，六个位图由 `scripts/make-logo.ts` 生成，落地页顶栏与 favicon 内联同一串 path。
 `SparkMark` 之前**没有任何地方用**，现在接在隐私页（标题旁一个记号 + 页脚「记号 + Ember 0.0.1」，版本号读 `app.json`）。
@@ -41,8 +68,8 @@ D1–D7 引导（迁移 v12→v13）、GitHub Pages 落地页（可点的火带�
 ```bash
 cd C:/Users/16907/Ember
 npx tsc --noEmit                              # 期望：无输出
-npx expo export --platform android --max-workers 1   # 期望：成功，约 3.4MB .hbc
-sh "C:/Users/16907/AppData/Local/Temp/ember-check/run-all.sh"  # 期望：14 个套件全绿（414 项）
+npx expo export --platform android --max-workers 1   # 期望：成功，约 3.5MB .hbc
+sh "C:/Users/16907/AppData/Local/Temp/ember-check/run-all.sh"  # 期望：21 个套件全绿（1163 项）
 ```
 
 第三条是**仓库外**的临时测试（见 §7）。它在 `%TEMP%` 下，不进 git——如果那台机器上已经没有了，§7 写了怎么重建。
@@ -52,8 +79,8 @@ sh "C:/Users/16907/AppData/Local/Temp/ember-check/run-all.sh"  # 期望：14 个
 | 检查 | 结果 |
 | --- | --- |
 | `npx tsc --noEmit` | 0 错误 |
-| `npx expo export` | 成功，3.4MB `.hbc` |
-| `run-all.sh` | 14 套件 / 414 项断言全绿 |
+| `npx expo export` | 成功，3.5MB `.hbc` |
+| `run-all.sh` | 21 套件 / 1163 项断言全绿（2026-10-27；`home-prefs-test` 80 项、`simplify-test` 75 项、`migrate-old-test` 21 项） |
 | `npx expo start` + 请求 dev bundle | HTTP 200，路由里含 `(tabs)/status`、`(tabs)/journal`、`goals/index` |
 
 > **上一版文档说「tsc 0 错误、193 项全绿」是错的。** 接手时实测到 **9 个 tsc 错误**
@@ -182,10 +209,14 @@ app/  →  services/  →  db/repo/  →  domain/
 app/                          页面（expo-router 文件路由）
   _layout.tsx                 根布局：bootstrap（开库→迁移→种子→日常维护→读设置）+ AppState 回前台补维护
   onboarding.tsx              首次启动引导（三屏，默认选中「喝一杯水」）
-  (tabs)/index.tsx            今天：火带 + 习惯行 + 待办卡 + 微行动 + 今日发现 + D1/2/4/6/7 引导卡
+  (tabs)/index.tsx            今天：标题日期 + 火带（可关）+ 月历（可关）+ 习惯行
+                                 + 待办卡（右滑删，D55）+ 右下「+」（D61 删掉了横带/引导卡/三模板）
   (tabs)/status.tsx           ★ 状态（D48）：人生等级 + 五维属性条 + 称号摘要（照抄人升版式）
+                                 装配在 domain/status.ts；这一页只渲染（分母 = 本级总需）
   (tabs)/journal.tsx          ★ 日记（D49）：今天写一句 + 按天历史 + 周/月复盘入口 + 关键节点 + 存成图片
+                                历史区右上「看更早的」→ journal/history.tsx（D54）
   (tabs)/me.tsx               我的：头像、Lv、余烬、连胜、称号、商店/统计/目标/状态入口 + D5 引导卡
+  journal/history.tsx         ★ 全部日记（D54）：日期游标分页，点一天退回日记页改
   goals/index.tsx             目标列表（进行中 / 已完成分组）+ D3 引导卡（D48 起是二级页）
   goals/new.tsx               新建目标
   goals/[id].tsx              目标详情：改标题/为什么/截止日、挂任务、手动完成
@@ -198,15 +229,18 @@ app/                          页面（expo-router 文件路由）
   rule-engine.tsx             温柔复盘 + 任务拆解（本地模板）
   privacy.tsx                 你的数据在哪儿
   settings/index.tsx          设置（分组：资料 / 外观 / 节奏 / 数据）
-  settings/theme.tsx          主题选择（四套预览卡）
+  settings/theme.tsx          主题选择（两套预览卡，D59）
+  settings/home.tsx           ★ 首页设置（D62）：月历 / 火带 / 右滑提示 / 待办条数
+  settings/difficulty.tsx     ★ 难度选择（D62）：三档，带禁改窗口（repairable 时不许改）
+  settings/day-start.tsx      ★ 日界选择（D62）：0–23 全圈
   settings/backup.tsx         备份：导出、导入、回到导入前、日志
   settings/reminders.tsx      提醒：每个任务一个时刻
   stats.tsx                   统计：近 30 天
   tasks/new.tsx               新建任务（必填只有名字）
 
 src/db/
-  schema.ts                   ★ 建表 SQL + 全部迁移常量（铁律一）。现到 v14
-  migrate.ts                  ★ 手写迁移器（PRAGMA user_version），CURRENT_SCHEMA_VERSION = 14
+  schema.ts                   ★ 建表 SQL + 全部迁移常量（铁律一）。现到 v15
+  migrate.ts                  ★ 手写迁移器（PRAGMA user_version），CURRENT_SCHEMA_VERSION = 15
   client.ts                   单例连接、PRAGMA、runInTransaction
   seed.ts                     首次启动：player 1 行 + settings 1 行
   repo/{player,settings,tasks,checkins,goals,streak,reviews,journal}.ts   单表读写
@@ -226,7 +260,14 @@ src/domain/                   纯函数
   reminder.ts                 提醒的纯规则（时刻换算、文案库、上限截断）
   review.ts                   周复盘（周键、规范化、摘要）
   journal.ts                  ★ 日记的纯规则（规范化、空串判定、摘要，D49）
+  status.ts                   ★ 状态页的读数（人生等级的本级总需、属性 LV 与总分，D48）
+  calendar.ts                 ★ 月历的纯计算（格子对齐、跨年翻月、周日起头，D57）
+  homePrefs.ts                ★ 首页偏好（D62）：解析 / 序列化 / 默认值；只写与默认不同的字段
+                                 —— 纯函数放这里才测得到；留在页面里曾漏过一个分母 bug
   guide.ts                    ★ D1–D7 引导（七张卡、第几天、该不该显示）
+  titleMarks.ts               ★ 称号的图形（坐标搬自 Lucide，D52；版权声明在文件里）
+  shopMarks.ts                ★ 商店商品的图形（6 个 Lucide 图标，D53）
+  natureMarks.ts              ★ 自然图案（芽/花/地球/太阳/云雨/叶 + 自绘彩虹，D59）
   spark.ts                    ★ 品牌记号的几何（SPARK_PATH / BOX / BOUNDS / CENTER，D50；六个位图与界面共用）
   exportCard.ts               ★ 导出卡片的**内容**（纯数据，可在无手机环境验）
   monthReview.ts              月复盘（月末最后一个周六、五维变化）
@@ -246,12 +287,12 @@ src/services/                 编排（事务在这里）
   settle.ts                   结算接线
   streak.ts                   ★ 宽限券（惰性补）+ 修复（事务）
   review.ts / monthReview.ts  周复盘 / 月复盘取数与保存
-  journal.ts                  ★ 日记取数与保存（「今天」走 effectiveToday，D49）
+  journal.ts                  ★ 日记视图（业务日 + 今天 + 历史）、目录分页、单日读取、保存（D49 / D54）
+  journalHandoff.ts           ★ 「打开某一天」的一次性队列（取走即清空，不走 tab 路由参数，D54）
   weekReport.ts               周报导出（文字版 + buildWeekCard 给图片版）
   maintenance.ts              ★ 日常维护：结算 → 宽限券 → 月度奖励 + 提示队列
   guide.ts                    ★ D1–D7 的锚点（老库补 guide_start_date）
   exportImage.tsx             ★ 截图 + 分享（离屏挂载 → captureRef → 1080px PNG）
-  journal.ts                   ★ 日记视图：业务日 + 今天 + 历史（D49）
   exportCards.ts              月报卡 / 复盘卡 / 时间线混排
   shop.ts                     购买 / 合成（事务）
   narrative.ts                叙事取数 + 月度奖励发放 + 关键节点
@@ -259,18 +300,27 @@ src/services/                 编排（事务在这里）
   logExport.ts                日志导出（异步）
   backup.ts / backup-import.ts  导出 / 导入 + 导入前快照
   reminders.ts                ★ 唯一碰通知 API 的地方（任务提醒 + 周复盘提醒）
+  calendar.ts                 ★ 月历的读数（有记录的日子 / 某一天的明细，D57）
+  homePrefs.ts                ★ 首页偏好的读写（D62）：读失败退回默认值，写失败抛错
 
 src/components/               Card（全 App 唯一的「框」）、TodoCard、TodoCheckbox、
                               TaskRow、HearthBar、AwardFloat、AddButton、QuickStart、
                               StatBarList、SettingsRow、PlayerAvatar、AvatarPickerSheet、
                               DueDateField、TabBarIcon、StageNote、EmberMeter、StreakRepairCard、
                               ExportCardView（导出卡片版式）、GuideCardView（D1–D7 卡片）、
-                              useGuideCard（哪一页负责第几天）、SparkMark（品牌记号，D50）
+                              useGuideCard（哪一页负责第几天）、SparkMark（品牌记号，D50）、
+                              TitleMark（称号图形：容器 + 水位 / 斜路 + 落点，D52）、
+                              ShopMark（商品图形，D53）、
+                              NatureMark（自然图案，D59）、PageTitle（标题 + 图案 + 副标题，D59）、
+                              CalendarCard（首页月历，D57）、
+                              SwipeToDelete（右滑露出「删」的卡片框，D55）
 
-src/theme/tokens.ts           ★ 全项目唯一允许出现十六进制色值的地方（四套色板）
+src/theme/tokens.ts           ★ 全项目唯一允许出现十六进制色值的地方（两套色板）
 src/theme/ThemeProvider.tsx   theme + themeId + reduceMotion + 行高按字号重算
 
 scripts/make-logo.ts          ★ 由 SPARK_PATH 生成 6 个位图（无头 Chrome 光栅化，D50）
+scripts/preview-title-marks.ts  ★ 把称号图形打成点阵 + 三档并排（D52）
+scripts/fetch-lucide-marks.ts   ★ 从 Lucide 拉图标并转成项目规矩的坐标（开发期，D52）
 assets/                       icon / android 三件套 / splash / favicon + logo-spark.svg
                               （**全部是生成物**，改形状只改 spark.ts 再重跑脚本）
 
@@ -309,7 +359,7 @@ site/                        落地页（GitHub Pages 的站点本体，无构�
 | 4-2 | 复盘卡（版式 + 图片导出） | **D43** |
 | 4-3/4 | 称号（15 个）+ 称号图鉴 | D41 |
 | 4-5/6 | 商店（只卖材料）+ 材料合成（3:1 固定） | D41 |
-| 4-7 | 今日发现（40 条，种子化） | D41 |
+| 4-7 | 今日发现（40 条，种子化） | D41（**D58 起首页不再画这张卡**，代码与文案都在） |
 | 5-1 | 月度活动（12 个月，奖励自动发） | D42 |
 | 5-2 | 四季叙事（24 段，累计天数解锁） | D42 |
 | 5-3 | 单人 Boss（血量 60，无死亡无惩罚） | D42 |
@@ -320,7 +370,7 @@ site/                        落地页（GitHub Pages 的站点本体，无构�
 | 6-6 | 首次启动引导（三屏） | D42 |
 | 6-7 | D1–D7 引导（七张卡 + 锚点，迁移 v12→v13） | **D45** |
 | 6-8 | 本地错误日志（不记用户内容） | D42 |
-| 6-9 | 数据迁移机制（`user_version`，现到 **v13**） | D31 |
+| 6-9 | 数据迁移机制（`user_version`，现到 **v15**） | D31 |
 
 ### 没做（按建议顺序）
 
@@ -381,6 +431,16 @@ site/                        落地页（GitHub Pages 的站点本体，无构�
 | `player.guide_start_date` 可能为 NULL | 老库从 v12 升上来时是 NULL | D45：迁移只改结构、不填日期（填日期是业务判断）。`services/guide.ts` 第一次读时补成「今天」，**不要在界面里自己判断 NULL** |
 | 「今天已经展示过第几张引导卡」不存库 | 模块级变量（`components/useGuideCard.ts`） | D45：多一列就多一条迁移 + 一处备份白名单，换来的只是同一天重开 App 不再看到那张卡。**App 被杀掉后重看一次同一张卡是可接受的** |
 | 导出卡片的字号不跟系统字号缩放 | `ExportCardView` 全部 `allowFontScaling={false}`，按 540dp 定死 | D43：卡片是**印刷品**，收到图片的人不缩放。与 D37（界面跟随系统字号）不冲突，两者服务的是不同的人。**别当成漏改** |
+| `titleMarks.ts` 里的坐标是**搬来的**，不是手绘 | 由 `scripts/fetch-lucide-marks.ts` 从 lucide-static@1.61.0 转换而来，每只带 `source` 字段 | D52：第一版手绘的五只容器被真图推翻三次（锅的圆弧底让矩形水位悬空、抽屉的盖让满档水面留白缝、碗与锅在 26px 下分不清）。**改形状只改 `fetch-lucide-marks.ts` 的图标名，重跑，再粘一次**——手改坐标会让「重新拉取」失效，而且改错一位不会报错 | 换图标要手工粘一次（不引构建期生成，D3 的少配置立场）；`svgpath` 是开发期依赖，不进 App |
+| 称号图形有**两种档位表达** | 体魄/秩序画水位，心智/心力/联结画浓度（不透明度 0.55/0.8/1） | D52：水位必须是矩形，而 Lucide 里「底部为平 + 矩形内腔」的容器凑不满五只。硬凑五只会回到手绘那条路 | 同一页里五只图形不是同一种东西（杯子 / 书 / 月亮 / 两个人），靠并排与标签说明它们是同一件事。**别为了整齐把它们改成五个一样的杯子**——那需要重新手绘 |
+| 坐标与版权声明**必须在同一个文件里** | `LUCIDE_LICENSE` 在 `titleMarks.ts` 顶部 | D52：Lucide 是 ISC 许可，要求「在副本中保留版权声明与许可声明」。坐标抄进了源码，声明也必须跟着 | 删掉那个常量不是清理，是违反许可 |
+| `app/journal/history.tsx` 的 import 层级 | 它在 `app/journal/` 下，比 `app/(tabs)/` 深一层，所以是 `../../src/` | （顺手修的）这一批改动里它一度写成 `../src/`，`tsc` 立刻红了 5 条 | 以后加 `app/<子目录>/x.tsx` 时注意层级 |
+| 「打开某一天」**不走路由参数** | 目录页用 `services/journalHandoff.ts` 的队列交班 | D54：tab 页的 params 是持久的，`setParams` 是浅合并、传 `undefined` 删不掉键。点过一次 2024-03-05，以后每次切回日记 tab 都会重开那一天。用 ref 记「已消费」也救不了——同一天点第二次时参数值没变，会被当成旧请求吞掉 | 多一格模块级状态；`router.push('/journal?day=...')` 那种写法**看起来更简单，但会在真机上留下这个坑**，而且 `tsc` 与断言都发现不了 |
+| 目录页的游标取**原始页的最后一行** | `getJournalPage` 里用 `pageRows` 而不是 `items` | D54：`items` 过滤掉了空正文的行。一页全是空行（只可能来自手改库）时 `items` 为空、游标变 null，而 `hasMore` 仍是 true——「看更早的」会永远点不动，更早的日记再也翻不出来 | 游标与显示的最后一条**平时是同一天**，不同时只在那一种脏数据下。`journal-status-test` 有一条专门造这个场景 |
+| `ThemeId` 仍是**四个值**，但只有**两套色板** | `tundra` / `daybreak` 在 `PALETTE_ALIASES` 里映射到 `furnace` | D59：数据库 CHECK 是 v1 建表 + v2 迁移写死的（D31 不许改），所以类型上四个值仍在。**新写「按 id 取色板」的代码时必须走 `paletteOf` / `PALETTE_ALIASES`**——直接 `PALETTES[id]` 会拿到 undefined 然后白屏 | 每个消费点都要自己有回退 |
+| 自然色**不用于文字** | 只给图形（`stroke` / `fill` / `backgroundColor`） | D59：主色的语义只有「可以点」，自然色出现在正文里读者会以为可点。`nature-test` 用 grep 查所有页面 | `color: palette.nature.*` 会被断言拦下 |
+| `natureTint` 是**派生值** | `buildPalette` 里 = 自然色向 `surface` 混 92% | D59：只改 `nature` 就够，**不要手改洗色的值**。白底与夜航用同一个浓度（0.92）——试过深底用 0.86，与卡片的对比度到 1.28:1，卡片读成「一块颜色」而不是「一张纸」 | 深底上的差异靠「自然色本身被提亮」拉开，不靠浓度 |
+| 待办页（今天）**零彩色** | `app/(tabs)/index.tsx` 里没有 PageTitle / NatureMark / natureTint | D59：用户明确说「待办页面不动」。**改别的页时很容易顺手给首页也加一个图案**，那会破掉这句话 | `nature-test` 有四条断言盯着首页与 TodoCard |
 | `assets/*.png` 是**生成物**，不是手绘 | 由 `scripts/make-logo.ts` 从 `src/domain/spark.ts` 的 `SPARK_PATH` 光栅化而来 | D50：同一件事原来画了三遍（图标 Λ / 底栏火苗 / 落地页火苗），改一次要改三处且必然漏一处。**改形状只改 `spark.ts`，然后 `npx tsx scripts/make-logo.ts` 重跑**——手工改 PNG 会在下一次重跑时被覆盖 | 那个脚本依赖本机装了 Chrome 或 Edge（用 `--headless --screenshot` 光栅化，不引 sharp/resvg）；换机器时若两个都没有，改形状就得多装一个浏览器 |
 | 底栏「今天」的火苗**没有**跟着换成火花 | 它是**图标**（描边、24 网格、23–28px，与另外三个同一套画法），而记号是**实心图形** | D50：两者职责不同（图标说「这一页叫什么」，记号说「这是谁」）。混用会让底栏四个图标里有一个不是描边的，那是明显的破绽。**别当成漏改** |
 | `assets/splash-icon.png` 已生成但**没接进 `app.json`** | 项目里没有 `expo-splash-screen`，`app.json` 也没有它的插件配置 | D50：接启动图 = 多一个原生模块，而它只在冷启动那一两秒可见。等真机手测之后再说（DECISIONS 的「待定」表里有这一条） |
@@ -432,7 +492,7 @@ ESB="C:/Users/16907/AppData/Local/npm-cache/_npx/beb367dfa21eb3f5/node_modules/.
 EMBER_TMP=$(mktemp -d) node xxx-test.js
 ```
 
-现成的 **14 个套件**（共 **414 项**断言，`run-all.sh` 一次跑完）：
+现成的 **21 个套件**（共 **1163 项**断言，`run-all.sh` 一次跑完）：
 
 | 套件 | 项数 | 覆盖 |
 | --- | --- | --- |
@@ -446,10 +506,18 @@ EMBER_TMP=$(mktemp -d) node xxx-test.js
 | `migrate6-test` | 11 | v5→v6 迁移（加列不替用户开提醒） |
 | `maintenance-test` | 15 | 日常维护的顺序、提示队列（冷启动攒话 / 在线直达 / 去重）、文案过禁用词表 |
 | `exportcard-test` | 30 | 导出卡片的**内容**：事实行、空记录不写 0、quote 去空白、文件名合法化、页脚 |
-| `site-test` | 31 | 落地页：不加载外部资源、禁用词、配色等于 token、未出包时不出死链、演示行为、**顶栏与 favicon 的记号必须等于 `SPARK_PATH`**（D50） |
+| `site-test` | 38 | 落地页：不加载外部资源、禁用词、配色等于 token、未出包时不出死链、演示行为、**顶栏与 favicon 的记号必须等于 `SPARK_PATH`**（D50） |
 | `guide-test` | 42 | D1–D7：第几天（含跨月/跨年/闰年）、该不该显示、锚点补齐与幂等、迁移 v13、备份往返 |
 | `deps-test` | 7 | 挡 `expo-router` 的 optional peer 与 babel 插件依赖（D47） |
-| `journal-status-test` | 96 | 日记（D49）：迁移 v14、备份白名单、旧备份放行、纯函数边界、读写与清空、**导出→导入往返**；状态页的 LV 口径（`points+1`、`points×200+xp`）；新文案过禁用词表 |
+| `journal-status-test` | 178 | 日记（D49）：迁移 v14、备份白名单、旧备份放行、纯函数边界（含**按码点截断 emoji**）、读写与清空、**导出→导入往返**；**目录页分页（D54）：三页翻完不重不漏、游标取原始行而不是过滤后的条目、60 天以外的单日读取、交班队列取走即清空**；状态页的读数（`points+1`、`points×200+xp`、**分母 = 本级总需而不是剩余**）；新文案过禁用词表 |
+| `nature-test` | 161 | 主题两套（D59）：被删的两套必须落到白、选择页只列两套、自然色的图形对比度 ≥3:1、洗色够淡且不等于 surface、六个图案两两不同、彩虹五条半径递减、八个页面的图案接线、**自然色不许当文字色**、**待办页零改动（4 条）** |
+| `shop-test` | 129 | 商店（D53）：迁移 v15 三列 + 幂等、**三个新列在备份白名单里**、商品价格/分组/图形、宽限券上限 5 而其余不限购、合成一次合到底且不会负数、自定义奖励校验与兑换、文案过禁用词表且无电商话术 |
+| `titles-test` | 144 | 称号两层（D52）：两层互不干扰、旅程门槛与真实 XP 曲线对得上（**每 5 级会有 7 档要一年以上**，这是改成每 10 级的论据）、**两只容器画水位 / 三只符号画浓度**、水位不越出内腔且贴底、满档留描边余量、五只 outline 两两不同、path 只用绝对命令且不含圆弧、**源码里有 Lucide 版权声明**、20 个名字过禁用词表、界面里不许再写死 `/ 15` |
+| `calendar-test` | 50 | 月历（D57）：格子按周对齐、周一起头 / 周日起头、跨年翻月、闰年与十二个月天数、日记也算「动过」、某一天的明细与空日子、摘要截断、**D61 之后 `Palette.banner` 必须不存在** |
+| `home-prefs-test` | 80 | 首页偏好（D62）**与日记偏好（D65）**：迁移到 v17、两列都在备份白名单里、`parse*Prefs` 的字段级兜底（坏 JSON / 错类型 / 越界 / 部分坏字段）、`serialize*Prefs` 只写差异、**`todoLimit` 真的改变首页列出几条待办**、**`bodyLimit` 真的截断写进库的内容且不传时行为不变**、历史条数真的改变列出几条 |
+| `simplify-test` | 75 | **静态**断言（D63–D65）：左滑的符号与红底方位、判据阈值、我的页去彩（彩虹与洗色必须**不存在**）、资料页只剩一个输入框、保存名字时把原 `bio` 传回去、日记页四个入口已删、三个新设置页与入口、页头提示改成「左滑可以删」 |
+| `migrate-old-test` | 21 | **旧库继续升级**（D65 事故的回归测试）：真造一个「`user_version` 已到 16、但缺 `journal_prefs`」的库，再跑 `migrate`，断言列被补上、默认 `'{}'`、`getSettings()` 读得出来；并断言 v15→v16 的 SQL 正文里**不含** `journal_prefs`（防止有人再把它塞回已发布的迁移） |
+
 
 **新加断言时注意三件事：**
 1. 不要拿 `SCHEMA_SQL_V1` 去「造一个旧版本的库」——那个常量会随工作变化，测试会绑在一个移动的目标上（`migrate6-test.ts` 里有正确写法）。
@@ -497,6 +565,13 @@ npx expo start          # 用 Expo Go 扫码
    - 「日记」页 → 点历史里的一天 → 编辑框换成那一天 → 「回到今天」能回来
    - 复盘页 / 叙事页 / 规则引擎页按返回 → **回到日记 tab**（不是空白/报错）
    - 日记 → 全删再存 → 那一天从历史里消失（等于没写）
+   - **「看更早的」（D54）**：
+     - 写满 60 天以上后，「写过的日子」右上出现「看更早的」→ 点进去是目录页 → 一直点「看更早的」能翻到最早的一天 → 末尾写「到最早的一天了。」
+     - 目录页点任意一天 → **退回日记页**，编辑框换成那一天（不是新开一页日记）
+     - 从目录页退回来后，**切到别的 tab 再切回日记**：不应该又跳回那一天（交班队列取走即清空）
+     - 同一天**连点两次**（先点 A 回来，再进目录点 A）：两次都应该打开 A
+     - 日记页写了半句**不保存** → 进目录点一天 → 期望：**不切走**，只说「先存下正在写的这一句」
+     - 一条日记都没有时：历史区整块不出现，**也就没有「看更早的」**
 
 **这一轮新增的，必须补上（按重要性排）：**
 
@@ -522,7 +597,13 @@ npx expo start          # 用 Expo Go 扫码
    - `cd site && python -m http.server 8080` → 浏览器打开 → 点圆圈、长按行
    - 手机上打开同一个地址，确认窄屏不错位（已在 420×940 下验过一次）
    - **顶栏那个记号要是火花**（四条不对称的臂），不是旧的火苗或「Λ」；标签页图标是暗蓝方块 + 纸白火花
-5. **品牌记号**（D50，2026-10-27 新增）
+5. **称号图形**（D52，2026-10-27 新增）
+   - 状态页 →「看全部称号」：五维各一张卡，卡里三只容器并排，**水位要能一眼比出高低**（1/3、2/3、满）
+   - **未解锁的三只必须是空容器**（不画水），名字是「？」，下面写「再走 X 点」
+   - 最下面「旅程」那张卡：五个落点斜向上排，走到第几档亮几个
+   - 系统字号调到 1.5 倍：三只容器并排**不能挤成两行**，名字最多两行（「耐久的行者」这种五字名）
+   - 「我的」页的称号卡：五只容器并排（26px），下面才是名字那一行
+6. **品牌记号**（D50，2026-10-27 新增）
    - 桌面图标 / 最近任务 / 通知栏那枚小图标**都是火花**，且**三处长得一样**
    - 通知栏那枚在**黑底上**还认得出（它是单色图标，系统会染色）
    - 进「设置 → 你的数据在哪儿」：标题右侧一个火花、页脚「火花 + Ember 0.0.1」，
@@ -533,23 +614,29 @@ npx expo start          # 用 Expo Go 扫码
 
 ## 9. 提交状态
 
-**未提交**，用户没有要求 commit。分支是 `master`，主分支是 `main`。
+分支是 `master`，主分支是 `main`。
 
-上一轮已经提交过一次（`4250788 实现阶段 2–6…`），所以这次的 diff 是**从那次之后的所有改动**：
-D37–D50、9 个 tsc 错误的修复、`react-native-view-shot` 依赖、迁移 v12→v13→v14、`site/` 与工作流、品牌记号。
+**已提交**：`5ec0093 实现阶段 6 剩余条目并换品牌记号：图片导出、引导卡、落地页、状态/日记两页（D43–D50）`。
+D43–D50 全部在这一次提交里，包括 D48/D49 的 tab 改造（`status.tsx` / `journal.tsx` / `goals/index.tsx`、
+迁移 v13→v14、三处备份白名单）与 D50 的品牌记号（`src/domain/spark.ts`、`SparkMark`、六个 PNG、`scripts/make-logo.ts`）。
 
-**D50 这一轮的具体文件变动**：
-- **新增**：`src/domain/spark.ts`、`src/components/SparkMark.tsx`、`scripts/make-logo.ts`、`assets/logo-spark.svg`
-- **重新生成**：`assets/` 六个 PNG（`icon` / android 三件套 / `splash-icon` / `favicon`）——旧的是「Λ」形图标
-- **改动**：`app/privacy.tsx`（接 SparkMark + 版本号署名）、`site/index.html`（顶栏与 favicon 换成 SPARK_PATH）、
-  `site/style.css`（`.brand-mark` 从描边改实心）、`DECISIONS.md`（D50 + 待定表加「启动图」）、
-  `docs/00` / `docs/03` / `README.md` / `HANDOFF.md`
-- **删除**：仓库根目录三个 GitHub API 抓包残留（`go5-base.json` / `kt-1016.json` / `npj-hist.json`）与 `.tmp-logo/`（探索用的中间文件）
+**当前未提交的（按发生顺序）：**
 
-上一轮（D48/D49）的具体文件变动：
-- **新增**：`app/(tabs)/status.tsx`、`app/(tabs)/journal.tsx`、`app/goals/index.tsx`、`src/db/repo/journal.ts`、`src/domain/journal.ts`、`src/services/journal.ts`
-- **删除**：`app/(tabs)/memories.tsx`、`app/(tabs)/goals.tsx`（内容搬去上面两个新文件）
-- **改动**：`app/(tabs)/_layout.tsx`、`app/(tabs)/me.tsx`、`src/components/TabBarIcon.tsx`、`scripts/preview-tab-icons.ts`、`src/domain/guide.ts`、`src/components/useGuideCard.ts`、`src/db/schema.ts`、`src/db/migrate.ts`、`src/domain/backup.ts`、`src/services/backup.ts`、`src/services/backup-import.ts`、四处 `router.replace('/memories')`、`DECISIONS.md`、`README.md`、`HANDOFF.md`
+1. **文案与注释里残留的「回忆」**（D48/D49 的收尾）。D48/D49 改了底栏与页面名，
+   但代码注释、`docs/` 五册、`README.md` 里还散着一批「回忆页 / 回忆卡」的旧说法，
+   这一轮统一改成「日记页 / 复盘卡」，并把已过时的断言总数一并校正。纯注释与文档，**零逻辑改动**。
+2. **D51 状态页装配搬家 + 四处修正**（`src/domain/status.ts`、`journal-status-test`）。
+3. **D52 称号两层 + Lucide 图形**（`titles.ts` / `titleMarks.ts` / `TitleMark` / 图鉴改版）。
+4. **D53 商店 v15**（`player` 三列、`shop.ts`、`ShopMark`、`shop-test`）。
+5. **D54 「看更早的」目录页**（`app/journal/history.tsx`、`src/services/journalHandoff.ts`、
+   `getJournalPage` / `getJournalDay` / `listJournalEntriesBefore`；状态页删掉「看全部称号」入口）。
+   这一项改完 `tsc` 0 错误、`expo export` 通过、21 套件 1163 项断言全绿。
+
+> **断言总数现在从代码算，不从文档抄。** `run-all.sh` 的输出把每套件的「N 通过」加起来就是总数
+> （2026-10-27 实测 1163）。文档里这一串数字已经错过两次，改套件后**顺手重算一次**。
+
+`@jasperdai__ember.jks` / `.bak.jks` 被 `.gitignore` 排除（`*.jks`），不会被误提交。
+`dist/` 与 `.expo/` 也在 .gitignore 里。**`site/` 不在 .gitignore 里**——它是要发布的东西。
 
 `@jasperdai__ember.jks` / `.bak.jks` 被 `.gitignore` 排除（`*.jks`），不会被误提交。
 `dist/` 与 `.expo/` 也在 .gitignore 里。**`site/` 不在 .gitignore 里**——它是要发布的东西。

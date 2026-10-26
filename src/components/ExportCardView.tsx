@@ -5,7 +5,7 @@ import { CARD_WIDTH, type ExportCardBlock, type ExportCardData } from '../domain
 import { useTheme } from '../theme/ThemeProvider';
 
 /**
- * 导出卡片的版式（周报图 / 月报图 / 回忆卡共用这一份）。
+ * 导出卡片的版式（周报图 / 月报图 / 复盘卡共用这一份）。
  *
  * ---- 为什么所有字号都是写死的数字 ----
  *

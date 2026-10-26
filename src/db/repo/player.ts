@@ -46,6 +46,12 @@ export interface PlayerRow {
   material: number;
   /** 精炼材料：3 个普通材料合成 1 个。阶段 4 第 6 条 */
   refined_material: number;
+  /** 宽限券补货的持有量（D53，迁移 v14→v15）。月度配给之外的额外票 */
+  grace_tickets: number;
+  /** 连胜护盾的持有量（D53）。一天的保护，要手动用 */
+  streak_shields: number;
+  /** 回看券的持有量（D53）。把断掉的连胜接回来 */
+  restore_tokens: number;
   /** 最近一次发过月度活动奖励的月份键。NULL = 从来没发过 */
   last_event_reward_month: string | null;
   /** D1–D7 引导的起算日（业务日 YYYY-MM-DD）。NULL = 还没定锚点（老库刚升级上来） */
@@ -92,6 +98,12 @@ export interface PlayerSnapshot {
   material: number;
   /** 精炼材料。与 material 一样只是一个数字，没有品质/绑定 */
   refinedMaterial: number;
+  /** 宽限券补货持有量（D53）。0 是合法的：一个都没有 */
+  graceTickets: number;
+  /** 连胜护盾持有量（D53） */
+  streakShields: number;
+  /** 回看券持有量（D53） */
+  restoreTokens: number;
   /** 最近一次发过月度活动奖励的月份键 YYYY-MM。null = 从来没发过 */
   lastEventRewardMonth: string | null;
   /**
@@ -122,6 +134,12 @@ export interface PlayerPatch {
   material?: number;
   /** 精炼材料。合成与商店都会改它 */
   refinedMaterial?: number;
+  /** 宽限券补货持有量（D53）。只有商店写 */
+  graceTickets?: number;
+  /** 连胜护盾持有量（D53）。商店写，用掉时 UI 层调 */
+  streakShields?: number;
+  /** 回看券持有量（D53）。商店写，用掉时 UI 层调 */
+  restoreTokens?: number;
   /** 记录「哪个月的月度奖励已经发过了」。只由 narrative 服务写 */
   lastEventRewardMonth?: string | null;
   /** D1–D7 的起算日。只由 guide 服务写（老库补锚点那一刻） */
@@ -142,6 +160,9 @@ const PLAYER_COLUMN_MAP: Record<keyof PlayerPatch, string> = {
   ember: 'ember',
   material: 'material',
   refinedMaterial: 'refined_material',
+  graceTickets: 'grace_tickets',
+  streakShields: 'streak_shields',
+  restoreTokens: 'restore_tokens',
   lastEventRewardMonth: 'last_event_reward_month',
   guideStartDate: 'guide_start_date',
   onboardingDone: 'onboarding_done',
@@ -163,7 +184,9 @@ export function getPlayer(): PlayerRow {
     `SELECT id, display_name, bio, level, xp_total, xp_in_level, highest_level,
             attr_body_xp, attr_mind_xp, attr_order_xp, attr_spirit_xp, attr_bond_xp,
             attr_body_pts, attr_mind_pts, attr_order_pts, attr_spirit_pts, attr_bond_pts,
-            ember, material, refined_material, last_event_reward_month,
+            ember, material, refined_material,
+            grace_tickets, streak_shields, restore_tokens,
+            last_event_reward_month,
             guide_start_date, onboarding_done, avatar_id, created_at, updated_at
        FROM player
       LIMIT 1`
@@ -202,6 +225,9 @@ export function getPlayerSnapshot(): PlayerSnapshot {
     ember: row.ember,
     material: row.material,
     refinedMaterial: row.refined_material,
+    graceTickets: row.grace_tickets,
+    streakShields: row.streak_shields,
+    restoreTokens: row.restore_tokens,
     lastEventRewardMonth: row.last_event_reward_month,
     guideStartDate: row.guide_start_date,
     onboardingDone: row.onboarding_done === 1,

@@ -500,7 +500,7 @@ export function listActiveCheckinDates(upToDate: string): CheckinDatePair[] {
   return rows.map((row) => ({ taskId: row.task_id, localDate: row.local_date }));
 }
 
-/** 某个任务累计有效打卡次数（回忆页与统计用） */
+/** 某个任务累计有效打卡次数（日记页与统计用） */
 export function countCheckinsForTask(taskId: string): number {
   const row = getDb().getFirstSync<{ n: number }>(
     `SELECT COUNT(*) AS n FROM checkins WHERE task_id = ? AND status = 'active'`,
@@ -522,7 +522,7 @@ export function getLatestCheckin(): Checkin | null {
 }
 
 /**
- * 按日期分组统计（回忆页的时间轴）。
+ * 按日期分组统计（日记页的时间轴）。
  * 返回业务日 → 条数 / XP / 余烬。
  */
 export interface DateSummary {

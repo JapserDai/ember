@@ -34,11 +34,14 @@ import {
   MIGRATE_V11_TO_V12_SQL,
   MIGRATE_V12_TO_V13_SQL,
   MIGRATE_V13_TO_V14_SQL,
+  MIGRATE_V14_TO_V15_SQL,
+  MIGRATE_V15_TO_V16_SQL,
+  MIGRATE_V16_TO_V17_SQL,
   SCHEMA_SQL_V1,
 } from './schema';
 
 /** 代码期望的 schema 版本。每次新增迁移，这里要同步 +1。 */
-export const CURRENT_SCHEMA_VERSION = 14;
+export const CURRENT_SCHEMA_VERSION = 17;
 
 /**
  * 迁移函数数组。
@@ -221,6 +224,42 @@ const MIGRATIONS: ReadonlyArray<(db: SQLiteDatabase) => void> = [
   // 而常量里用的是 CREATE TABLE IF NOT EXISTS，重复执行是空操作。
   (db) => {
     db.execSync(MIGRATE_V13_TO_V14_SQL);
+  },
+
+  // 14 → 15：player 加三个持有物列（商店扩成三类，D53）。
+  //
+  // 同一个坑（v4→v5 / v6→v7 / v10→v11 / v11→v12 / v12→v13）：**先查 PRAGMA 再加列**。
+  // 这里一次加三列，所以逐条查；任何一列已存在就跳过它。
+  // 老库升级上来是 0 —— 「一个都没有」，这是真实情况，不替任何人补。
+  (db) => {
+    const columns = db.getAllSync<{ name: string }>(`PRAGMA table_info(player)`);
+    const has = (name: string) => columns.some((column) => column.name === name);
+    for (const sql of MIGRATE_V14_TO_V15_SQL.split(';').map((x) => x.trim()).filter(Boolean)) {
+      const name = sql.match(/ADD COLUMN \w+/)?.[1];
+      if (name && has(name)) continue;
+      db.execSync(sql + ';');
+    }
+  },
+
+  // 15 → 16：settings 加一列 home_prefs（首页偏好，D62）。
+  //
+  // 同一个坑（v4→v5 起每一次加列都踩过）：**先查 PRAGMA 再加列**。
+  // 这一列是 TEXT NOT NULL DEFAULT '{}'，老库升级上来是 '{}'，
+  // 也就是「全用代码里的默认」——升级不替任何人改变首页的长相。
+  (db) => {
+    const columns = db.getAllSync<{ name: string }>(`PRAGMA table_info(settings)`);
+    if (columns.some((column) => column.name === 'home_prefs')) return;
+    db.execSync(MIGRATE_V15_TO_V16_SQL);
+  },
+
+  // 16 → 17：settings 加 journal_prefs（日记偏好，D65）。
+  //
+  // 独立一条而不是并进 v16——原因见 schema.ts 里那段长注释：
+  // v16 已经在真实数据库上执行过，改它就等于改已发布的迁移。
+  (db) => {
+    const columns = db.getAllSync<{ name: string }>(`PRAGMA table_info(settings)`);
+    if (columns.some((column) => column.name === 'journal_prefs')) return;
+    db.execSync(MIGRATE_V16_TO_V17_SQL);
   },
 ];
 

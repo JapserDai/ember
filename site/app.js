@@ -9,7 +9,8 @@
      - 点圆圈记一次 → 火带前进 → 飘一个 +26 → 那一格亮出「+26 XP · +3 余烬」3 秒；
      - 长按已记的行（500ms）→ 撤销，火带退回；
      - 全部记完 → 标题换成「今天到这儿了。」；
-     - 完成的习惯「退到灰里」，不划删除线（App 的 D13）。
+     - 完成的习惯「退到灰里」，不划删除线（App 的 D13）；
+     - 待办只有文字、不能勾选，**右滑露出「删」**（App 的 D55，手写 pointer 事件，不引库）。
    数值也是真的：轻松档 +30 基础分，第 1 次乘 1.0、第 2 次 0.9、第 3 次 0.8
    （App 的软上限），所以 30 / 27 / 24。取整后与演示里的 +30 / +27 / +24 一致。
    ========================================================================== */
@@ -105,11 +106,21 @@
     { id: 'read', title: '读两页书', xp: 24, ember: 2 },
   ];
 
+  /*
+   * 待办（D55）：只有文字，没有完成态。删掉就没了。
+   * 与 App 的差异只有一处：这里没有「添加」，因为落地页不需要一个输入框。
+   */
+  var TODOS = [
+    { id: 'rent', title: '交这个月的房租', meta: '10 月 30 日' },
+    { id: 'glasses', title: '去配一副新眼镜', meta: '不限期' },
+  ];
+
   var state = {
     done: {}, // id -> true
     awardTimer: null,
     longPressTimer: null,
     pressing: null,
+    todos: TODOS.slice(),
   };
 
   var els = {};
@@ -123,6 +134,7 @@
     els.award = document.getElementById('hearth-award');
     els.headline = document.getElementById('demo-headline');
     els.date = document.getElementById('demo-date');
+    els.todos = document.getElementById('todo-list');
 
     if (!els.list) return;
 
@@ -247,6 +259,128 @@
 
       els.list.appendChild(li);
     });
+
+    renderTodos();
+  }
+
+  /* ---- 待办：只有文字 + 右滑删除（App 的 D55） ---- */
+
+  function renderTodos() {
+    if (!els.todos) return;
+    els.todos.innerHTML = '';
+
+    state.todos.forEach(function (todo) {
+      var li = document.createElement('li');
+      li.className = 'todo';
+      li.dataset.id = todo.id;
+
+      // 底下那一层：红色的「删」
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'todo-delete';
+      del.textContent = '删';
+      del.setAttribute('aria-label', '删除：' + todo.title);
+      del.addEventListener('click', function () {
+        removeTodo(todo.id);
+      });
+
+      // 上面那一层：会被推开的正文
+      var body = document.createElement('div');
+      body.className = 'todo-body';
+
+      var title = document.createElement('div');
+      title.className = 'todo-title';
+      title.textContent = todo.title;
+
+      var meta = document.createElement('div');
+      meta.className = 'todo-meta';
+      meta.textContent = todo.meta;
+
+      body.appendChild(title);
+      body.appendChild(meta);
+
+      li.appendChild(del);
+      li.appendChild(body);
+
+      attachSwipe(li, body, todo.id);
+      els.todos.appendChild(li);
+    });
+  }
+
+  /**
+   * 右滑：手指往右推，内容跟着走，过一半就吸附到开。
+   *
+   * 与 App 的 SwipeToDelete 同一套判据：横向位移要大于纵向才接管，
+   * 否则让页面正常竖向滚动（斜着滑的时候抢手势是最糟的手感）。
+   */
+  function attachSwipe(li, body, id) {
+    var startX = 0;
+    var startY = 0;
+    var dx = 0;
+    var claiming = false;
+    var OPEN = 4.5 * 16; // 与 CSS 的 4.5rem 对齐
+
+    body.addEventListener('pointerdown', function (e) {
+      if (e.button !== undefined && e.button !== 0) return;
+      startX = e.clientX;
+      startY = e.clientY;
+      dx = 0;
+      claiming = false;
+      body.setPointerCapture(e.pointerId);
+    });
+
+    body.addEventListener('pointermove', function (e) {
+      if (!startX && !startY) return;
+      var mx = e.clientX - startX;
+      var my = e.clientY - startY;
+
+      if (!claiming) {
+        if (Math.abs(mx) < 8 || Math.abs(mx) < Math.abs(my) * 1.6) return;
+        if (li.classList.contains('open') ? mx > 0 : mx < 0) return;
+        claiming = true;
+        li.classList.add('dragging');
+      }
+
+      dx = li.classList.contains('open') ? mx + OPEN : mx;
+      if (dx < 0) dx = 0;
+      if (dx > OPEN) dx = OPEN + (dx - OPEN) * 0.22;
+      body.style.transform = 'translateX(' + dx + 'px)';
+      e.preventDefault();
+    });
+
+    function finish() {
+      if (!claiming) return;
+      claiming = false;
+      li.classList.remove('dragging');
+      body.style.transform = '';
+
+      if (dx > OPEN * 0.45) {
+        // 同时只开一行（与 App 一样）
+        Array.prototype.forEach.call(
+          els.todos.querySelectorAll('.todo.open'),
+          function (other) {
+            other.classList.remove('open');
+          }
+        );
+        li.classList.add('open');
+      } else {
+        li.classList.remove('open');
+      }
+      dx = 0;
+      startX = 0;
+      startY = 0;
+    }
+
+    body.addEventListener('pointerup', finish);
+    body.addEventListener('pointercancel', finish);
+    body.addEventListener('pointerleave', finish);
+  }
+
+  function removeTodo(id) {
+    state.todos = state.todos.filter(function (todo) {
+      return todo.id !== id;
+    });
+    renderTodos();
   }
 
   /* ---- 记一次 ---- */

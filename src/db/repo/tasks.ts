@@ -465,7 +465,7 @@ export function updateTask(id: string, patch: UpdateTaskInput): void {
  *   active   —— 正常出现
  *   paused   —— 暂停，不出现，不参与连胜
  *   done     —— 待办已完成（同时写 completed_at）
- *   archived —— 归档，只在「回忆」里可见
+ *   archived —— 归档，只在「日记」页的历史里可见
  */
 export function updateTaskStatus(id: string, status: TaskStatus): void {
   const now = Date.now();

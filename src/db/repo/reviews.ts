@@ -48,7 +48,7 @@ export function getReview(weekKey: string): ReviewRow | null {
 /**
  * 按周倒序列出全部复盘（最近的在前）。
  *
- * 不带分页：一周一条，一年也就 52 条。回忆页要一次列出全部，
+ * 不带分页：一周一条，一年也就 52 条。日记页要一次列出全部，
  * 而分页会给「翻看自己写过的东西」这件事加一层不必要的门。
  */
 export function listReviews(limit: number = 200): ReviewRow[] {

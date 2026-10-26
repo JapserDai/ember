@@ -23,7 +23,7 @@ import {
 } from '../db/repo/tasks';
 import { DEFAULT_DAY_START_HOUR, diffDays, effectiveToday } from '../domain/date';
 import { formatDueLabel } from '../domain/goals';
-import { pickBySeed } from '../domain/prng';
+import { parseHomePrefs } from '../domain/homePrefs';
 import { isScheduledOn, weekRange } from '../domain/recurrence';
 import { summarizeDates, summarizeStreaks, type BridgeDay, type StreakSummary } from '../domain/streak';
 import { canUndoCheckin } from './checkin';
@@ -44,11 +44,9 @@ export interface TodayTaskView {
 export interface TodayTodoView {
   id: string;
   title: string;
-  done: boolean;
-  canUndo: boolean;
   /** 截止日的中文说法（「10 月 30 日」）。null 表示不限期 */
   dueLabel: string | null;
-  /** 截止日已过且还没完成。卡片据此把这一行元信息染成红色 */
+  /** 截止日已过。卡片据此把这一行元信息染成红色 */
   overdue: boolean;
   /** 备注。null 表示没写 */
   notes: string | null;
@@ -66,27 +64,13 @@ export interface TodayData {
   habits: TodayTaskView[];
   /**
    * 待办，最多 3 条。
-   * 已完成的今天仍留在列表里（带 canUndo），否则撤销入口就没有了。
+   *
+   * **D55 之后待办不再有「完成」这个状态**，所以这里只有还没归档的待办，
+   * 没有 `done` / `canUndo` 两个字段。它们不进火带、不进「今天 N / M 件」，
+   * 也不发 XP——它们是便签，不是任务。
    */
   todos: TodayTodoView[];
-  microAction: string;
 }
-
-/**
- * 「今天还可以」推荐池。
- *
- * 全部是一分钟内能做完、且不需要任何准备的事。
- * 阶段 3 会把它搬到 content/ 里，这里先常量放着。
- */
-export const MICRO_ACTIONS: readonly string[] = [
-  '把桌面上的一样东西放回它该在的位置。',
-  '给自己倒一杯水，喝完再回来。',
-  '站起来，把肩膀转两圈。',
-  '删掉三张不再需要的截图。',
-  '给今天做过的一件事写一句话。',
-  '把手机屏幕朝下放一分钟。',
-  '打开窗户，站到窗边呼吸几次。',
-];
 
 /**
  * 读日界的容错版本，给界面首帧用。
@@ -116,21 +100,15 @@ export function getSafeDayStartHour(): number {
  *
  * 过期判断用业务日而不是当前时刻：一个「今天到期」的待办在晚上 11 点
  * 不该变红——它还没到期，今天还没过完。
+ *
+ * 这里不再有 `done`：待办没有完成状态（D55）。一个待办做完了，删掉它。
  */
-function toTodoView(
-  task: Task,
-  done: boolean,
-  canUndo: boolean,
-  today: string
-): TodayTodoView {
-  const overdue =
-    !done && task.dueDate !== null && diffDays(task.dueDate, today) > 0;
+function toTodoView(task: Task, today: string): TodayTodoView {
+  const overdue = task.dueDate !== null && diffDays(task.dueDate, today) > 0;
 
   return {
     id: task.id,
     title: task.title,
-    done,
-    canUndo,
     dueLabel: formatDueLabel(task.dueDate, today),
     overdue,
     notes: task.notes && task.notes.trim().length > 0 ? task.notes.trim() : null,
@@ -142,17 +120,20 @@ export function getTodayData(nowMs: number = Date.now()): TodayData {
   const settings = getSettings();
   const dayStartHour = settings.day_start_hour;
   const weekStartsOn = settings.week_starts_on;
+  // 首页偏好只影响「显示几条」，不影响任何数值。解析失败时它自己退回默认值
+  const { todoLimit } = parseHomePrefs(settings.home_prefs);
 
   // 读与写用同一个业务日口径：effectiveToday 会挡住「系统时间被调回过去」
   const { today } = effectiveToday(nowMs, dayStartHour, settings.last_settled_date);
 
   /*
-   * 候选任务：活跃的 + 今天已经完成过的。
+   * 候选任务：活跃的 + 今天已经完成过的习惯。
    *
-   * 为什么要把已完成的一起取出来：待办勾掉之后 status 变成 'done'，
-   * 而 listActiveTasks() 只查 status='active'——如果只用它，
-   * 今天刚做完的待办就会从列表里消失，撤销入口也就跟着没了。
-   * 已完成的习惯不受影响（习惯打卡不改任务状态）。
+   * 为什么要加上 `status = 'done'` 那一批：**习惯**本身不改任务状态，
+   * 所以这一批在 D55 之前只有「今天勾掉的待办」。待办不再有完成态之后，
+   * 这一批理论上永远是空的——但留着它比删掉安全：目标页的手动完成
+   * （`completeGoal` 那条路）会 write task.status = 'done'，
+   * 那些任务的历史打卡仍然要在首页被看见，否则他们的连胜会「凭空消失」。
    */
   const tasks = [...listActiveTasks(), ...listTasks({ status: 'done' })];
 
@@ -186,7 +167,6 @@ export function getTodayData(nowMs: number = Date.now()): TodayData {
 
   const habits: TodayTaskView[] = [];
   const openTodos: TodayTodoView[] = [];
-  const doneTodos: TodayTodoView[] = [];
 
   for (const task of tasks) {
     const isDone = doneToday.has(task.id);
@@ -211,11 +191,15 @@ export function getTodayData(nowMs: number = Date.now()): TodayData {
     }
 
     if (task.type === 'todo') {
-      if (isDone) {
-        // 今天完成、当天仍留在列表里，这样长按撤销够得着
-        doneTodos.push(toTodoView(task, true, undoAllowed, today));
-      } else if (task.status === 'active' && isScheduledOn(task, today, weekStartsOn, 0)) {
-        openTodos.push(toTodoView(task, false, false, today));
+      /*
+       * 待办只在「还没归档」时出现（D55）。
+       *
+       * 早先这里还会把 `status === 'done'` 的待办（今天刚勾掉的）也读出来，
+       * 为的是留一个长按撤销的入口。现在待办没有完成态了，
+       * 所以那一路连同 `listTasks({ status: 'done' })` 在下面的候选集里也一起去掉。
+       */
+      if (task.status === 'active' && isScheduledOn(task, today, weekStartsOn, 0)) {
+        openTodos.push(toTodoView(task, today));
       }
     }
 
@@ -224,19 +208,22 @@ export function getTodayData(nowMs: number = Date.now()): TodayData {
 
   const player = getPlayerSnapshot();
 
-  // 同一天恒定、跨天更换：用 (玩家, 日期) 当种子，不用 Math.random
-  const microAction =
-    pickBySeed(MICRO_ACTIONS, `${player.id}|${today}`, 'micro') ?? MICRO_ACTIONS[0];
-
   return {
     today,
     dayStartHour,
     level: player.level,
     playerName: player.displayName,
     habits,
-    // 未完成的排在前面，最多 3 条
-    todos: [...openTodos, ...doneTodos].slice(0, 3),
-    microAction,
+    /*
+     * 待办条数由首页偏好决定（D62，默认 3）。
+     *
+     * `todoLimit === null` 表示「全部」——不 slice 就是全部，
+     * 不要写成 `slice(0, Number.MAX_SAFE_INTEGER)`：那个数不是长度上限的语义，
+     * 而且读代码的人要停下来想一下。
+     *
+     * 未完成排在前面这件事现在不存在了——它们全都是未完成的。
+     */
+    todos: todoLimit === null ? openTodos : openTodos.slice(0, todoLimit),
   };
 }
 

@@ -4,6 +4,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Card } from '../src/components/Card';
+import { PageTitle } from '../src/components/PageTitle';
 import { StatBarList } from '../src/components/StatBarList';
 import { getStatsData, STATS_WINDOW_DAYS, type StatsData } from '../src/services/stats';
 import { useTheme } from '../src/theme/ThemeProvider';
@@ -23,7 +24,7 @@ import { useTheme } from '../src/theme/ThemeProvider';
  *
  * ---- 为什么放在「我的」页的入口，而不是第五个 tab ----
  *
- * 底栏四个 tab 是「今天要做什么」的四个面（今天 / 目标 / 回忆 / 我的）。
+ * 底栏四个 tab 是「今天要做什么」的四个面（今天 / 状态 / 日记 / 我的，D48）。
  * 统计是回头看的，一周看一次的东西；给它一个常驻 tab，等于把「复盘」
  * 抬到和「今天做什么」一样重。放在我的页，从设置上方那一块进。
  */
@@ -93,18 +94,9 @@ export default function StatsScreen() {
           </Text>
         </Pressable>
 
-        <Text
-          style={{
-            marginTop: theme.spacing.md,
-            fontSize: theme.typography.size.title,
-            lineHeight: theme.typography.lineHeight.title,
-            fontWeight: theme.typography.weight.semibold,
-            color: palette.text,
-            fontFamily: theme.typography.fontFamily.title,
-          }}
-        >
-          统计
-        </Text>
+        <View style={{ marginTop: theme.spacing.md }}>
+          <PageTitle title="统计" mark="rain" subtitle="只看最近三十天。不报完成率，也不报分母。" />
+        </View>
       </View>
 
       {/*

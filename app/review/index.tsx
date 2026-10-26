@@ -4,6 +4,7 @@ import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Card } from '../../src/components/Card';
+import { PageTitle } from '../../src/components/PageTitle';
 import {
   REVIEW_FREE_MAX,
   REVIEW_QUESTIONS,
@@ -146,32 +147,13 @@ export default function ReviewScreen() {
           </Text>
         </Pressable>
 
-        <Text
-          style={{
-            marginTop: theme.spacing.md,
-            fontSize: theme.typography.size.title,
-            lineHeight: theme.typography.lineHeight.title,
-            fontWeight: theme.typography.weight.semibold,
-            color: palette.text,
-            fontFamily: theme.typography.fontFamily.title,
-          }}
-        >
-          周复盘
-        </Text>
-
-        {view?.weekKey ? (
-          <Text
-            style={{
-              marginTop: theme.spacing.xs,
-              fontSize: theme.typography.size.caption,
-              lineHeight: theme.typography.lineHeight.body,
-              color: palette.textMuted,
-              fontFamily: theme.typography.fontFamily.body,
-            }}
-          >
-            {view.rangeLabel}
-          </Text>
-        ) : null}
+        <View style={{ marginTop: theme.spacing.md }}>
+          <PageTitle
+            title="周复盘"
+            mark="leaf"
+            subtitle={view?.weekKey ? view.rangeLabel : undefined}
+          />
+        </View>
       </View>
 
       {/* 读不出来时说一句实话，不假装「这周没记录」 */}

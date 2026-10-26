@@ -4,14 +4,18 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Card } from '../../src/components/Card';
-import { GuideCardView } from '../../src/components/GuideCardView';
-import { useGuideCard, GUIDE_HOST } from '../../src/components/useGuideCard';
 import { PlayerAvatar } from '../../src/components/PlayerAvatar';
+import { TitleMark } from '../../src/components/TitleMark';
 import { StreakRepairCard } from '../../src/components/StreakRepairCard';
 import { getPlayerSnapshot, type PlayerSnapshot } from '../../src/db/repo/player';
 import { ATTRIBUTE_KEYS, ATTRIBUTE_LABEL, XP_TABLE, type AttributeKey } from '../../src/domain/balance';
 import { DEFAULT_AVATAR_ID } from '../../src/domain/avatar';
-import { highestTitles, nextTitles } from '../../src/domain/titles';
+import {
+  JOURNEY_TITLES,
+  highestTitles,
+  nextJourneyTitle,
+  nextTitles,
+} from '../../src/domain/titles';
 import type { StreakSummary } from '../../src/domain/streak';
 import { NEUTRAL_COPY } from '../../src/domain/text-rules';
 import { getOverallStreak } from '../../src/services/today';
@@ -77,6 +81,10 @@ const FALLBACK_PLAYER: PlayerSnapshot = {
   ember: 0,
   material: 0,
   refinedMaterial: 0,
+  // D53 的三个持有物：兜底快照里都是 0，与「刚装 App 的玩家」一致
+  graceTickets: 0,
+  streakShields: 0,
+  restoreTokens: 0,
   lastEventRewardMonth: null,
   // 兑底快照的起算日为空：这一份只在读库失败时用，
   // 而引导卡的显示本来就要先读库（getGuideState 自己会兜住），
@@ -166,7 +174,7 @@ function StatTile({ label, value }: { label: string; value: string }) {
  *   - 已经拿到过至少一个 → 列出最高档的那几个名字；
  *   - 一个都没拿到 → 给「最近的那个还差多少点」。
  *
- * 两者都带一个进图鉴的入口。不做「3 / 15」那种进度——那是清单，不是记录。
+ * 两者都带一个进图鉴的入口。不做「3 / 20」那种进度——那是清单，不是记录。
  */
 function TitleSummary({ onOpen }: { onOpen: () => void }) {
   const { theme, palette } = useTheme();
@@ -175,22 +183,27 @@ function TitleSummary({ onOpen }: { onOpen: () => void }) {
    * 在渲染期读一次玩家数据。
    * 读失败时整张卡不画：称号是装饰，不该因为读库失败把「我的」页拖垮。
    */
-  const points = (() => {
+  const snapshot = (() => {
     try {
       const player = getPlayerSnapshot();
       const map = {} as Record<AttributeKey, number>;
       for (const key of ATTRIBUTE_KEYS) map[key] = player.attributes[key].points;
-      return map;
+      return { points: map, level: player.level };
     } catch (err) {
       console.warn('[Ember] 读取称号失败', err);
       return null;
     }
   })();
 
-  if (!points) return null;
+  if (!snapshot) return null;
 
+  const { points, level } = snapshot;
   const top = highestTitles(points);
   const next = nextTitles(points);
+
+  // 旅程那一层（D52）：等级是单条轴，所以只取最近拿到的那一个
+  const journey = nextJourneyTitle(level);
+  const journeyEarned = JOURNEY_TITLES.filter((title) => level >= title.threshold);
 
   return (
     <Card style={{ marginTop: theme.spacing.cardGap }}>
@@ -205,18 +218,41 @@ function TitleSummary({ onOpen }: { onOpen: () => void }) {
         称号
       </Text>
 
+      {/*
+       * 图形（D52）：每一维一只容器，水位就是它现在那一档。
+       *
+       * 为什么这一页也画图形，而图鉴页画得更大：这一页是「一眼看我是谁」，
+       * 五只容器并排 = 五维各自的进度，比五个名字更快读。名字仍然写出来，
+       * 因为图形只表达「水位」，不表达「叫什么」。
+       */}
       {top.length > 0 ? (
-        <Text
-          style={{
-            marginTop: 2,
-            fontSize: theme.typography.size.body,
-            lineHeight: theme.typography.lineHeight.body,
-            color: palette.text,
-            fontFamily: theme.typography.fontFamily.body,
-          }}
-        >
-          {top.map((title) => title.name).join(' · ')}
-        </Text>
+        <>
+          <View style={styles.titleMarksRow}>
+            {top.map((title) => (
+              <TitleMark
+                key={title.id}
+                // 属性称号的 attribute 一定非 null；类型收窄用
+                mark={title.attribute ?? 'body'}
+                tier={title.tier}
+                unlocked
+                size={26}
+                strokeColor={palette.text}
+                fillColor={palette.primary}
+              />
+            ))}
+          </View>
+          <Text
+            style={{
+              marginTop: 2,
+              fontSize: theme.typography.size.body,
+              lineHeight: theme.typography.lineHeight.body,
+              color: palette.text,
+              fontFamily: theme.typography.fontFamily.body,
+            }}
+          >
+            {top.map((title) => title.name).join(' · ')}
+          </Text>
+        </>
       ) : (
         <Text
           style={{
@@ -243,9 +279,33 @@ function TitleSummary({ onOpen }: { onOpen: () => void }) {
             fontVariant: ['tabular-nums'],
           }}
         >
-          {ATTRIBUTE_LABEL[next[0].title.attribute]}再走 {next[0].remaining} 点
+          {/* 属性称号表里每一项的 attribute 都非 null；`?? ''` 只为类型收窄 */}
+          {ATTRIBUTE_LABEL[next[0].title.attribute ?? 'body']}再走 {next[0].remaining} 点
         </Text>
       ) : null}
+
+      {/*
+       * 旅程那一层。为什么放在最后、且只有一行：
+       * 等级已经在页头的「Lv.N」里读过了，这里只补一句「它有没有名字」。
+       * 写两行（名字 + 还差几级）会与上面那行五维提示抢同样的分量，
+       * 而五维才是这一页的主角（这一页回答「我是谁」，状态页回答「我走到了哪」）。
+       */}
+      <Text
+        style={{
+          marginTop: theme.spacing.xs,
+          fontSize: theme.typography.size.caption,
+          lineHeight: theme.typography.lineHeight.caption,
+          color: palette.textMuted,
+          fontFamily: theme.typography.fontFamily.body,
+          fontVariant: ['tabular-nums'],
+        }}
+      >
+        {journeyEarned.length > 0
+          ? `旅程：${journeyEarned[journeyEarned.length - 1].name}`
+          : journey
+            ? `旅程：再走 ${journey.remaining} 级到「${journey.title.name}」`
+            : null}
+      </Text>
 
       <Pressable
         accessibilityRole="button"
@@ -289,13 +349,10 @@ export default function MeScreen() {
   const [player, setPlayer] = useState<PlayerSnapshot>(loadPlayer);
   const [streak, setStreak] = useState<StreakSummary>(loadStreak);
 
-  /**
-   * D1–D7 引导。我的页只负责第 5 天（「这些是你走到今天的样子」）。
-   *
-   * 它必须排在这一页所有读数之后：那句话说的是「这些」，
-   * 而「这些」就是上面那些卡片。放在最上面就变成了没有指代对象的一句话。
+  /*
+   * D1–D7 引导卡：D63 起这一页不再挂（第 5 天那张「这些是你走到今天的样子」）。
+   * 卡的定义与文案仍在 `domain/guide.ts`，只是没有挂载点了。
    */
-  const guide = useGuideCard(GUIDE_HOST.me);
 
   /**
    * 每次回到这一页重新读一次。
@@ -311,7 +368,6 @@ export default function MeScreen() {
 
   // 升到下一级需要多少 XP（D48 起这一页不画经验条，但「状态」页的入口
   // 文案里要提一句「还差多少」，所以这个数仍留在这里算）。
-  const xpForNext = player.level < XP_TABLE.length ? XP_TABLE[player.level] : 0;
 
   /*
    * 称号先不做。
@@ -341,6 +397,14 @@ export default function MeScreen() {
          * （设置 → 资料）。早先头像与名字都是入口，于是这一页同时是展示页和
          * 编辑页的入口，用户点名字时并不知道自己会离开这一页。
          */}
+        {/*
+         * 身份卡：头像 + 名字 + 设置入口。
+         *
+         * D63 把 D59 加的两样彩色都去掉了——粉色洗色底与头像右边那条彩虹。
+         * 理由与这一轮其余改动一致：这一页要回答「我是谁、我有什么」，
+         * 而洗色底与彩虹说的是「这一页有自己的装饰语言」，那不是信息。
+         * 去掉之后身份卡回到白纸，与这一页其余的数据卡同一种长相。
+         */}
         <Card>
           <View style={styles.nameRow}>
             <View style={styles.identity}>
@@ -368,6 +432,9 @@ export default function MeScreen() {
                 {player.displayName}
               </Text>
             </View>
+
+            {/* 名字与设置入口之间留出空白（D63 删掉了原来贴在中间的彩虹） */}
+            <View style={{ marginLeft: 'auto' }} />
 
             {/*
              * 设置入口。纯文字、次要色、不加箭头不加边框——
@@ -400,26 +467,12 @@ export default function MeScreen() {
           </View>
 
           {/*
-           * 那句自我介绍。放在身份卡里而不是单独一张：它和名字是同一件事的两行，
-           * 中间隔一道卡缝会读成两条互不相干的数据。
+           * 那句自我介绍（`player.bio`）D63 起不再显示。
            *
-           * 没写就整块不出现——不留一行「还没写」的占位：
-           * 那一行会变成一个待办，而这一页不是待办清单。
-           * 想看要不要写，点设置进资料页，那里的输入框带着占位提示。
+           * **字段与库里已经写过的内容都保留**（不迁移、不清空）：
+           * 这一版只是不显示它，将来想接回来就是在这里加一段渲染。
+           * 编辑入口也一并从设置页删掉了。
            */}
-          {player.bio ? (
-            <Text
-              style={{
-                marginTop: theme.spacing.md,
-                fontSize: theme.typography.size.body,
-                lineHeight: theme.typography.lineHeight.body,
-                color: palette.textMuted,
-                fontFamily: theme.typography.fontFamily.body,
-              }}
-            >
-              {player.bio}
-            </Text>
-          ) : null}
         </Card>
 
         {/* 等级与余烬：两个只有一个数字的数据点，并排成两张等宽的卡 */}
@@ -497,7 +550,7 @@ export default function MeScreen() {
          * 只在真的拿到过至少一个时显示最高档那几个；一个都没拿到时
          * 显示「下一个称号还差多少」——那是一句方向，不是一句欠账。
          *
-         * 不显示「已解锁 3 / 15」：那个数字会变成一张要填满的清单，
+         * 不显示「已解锁 3 / 20」：那个数字会变成一张要填满的清单，
          * 而完整的图鉴在 /titles 里。
          */}
         <TitleSummary onOpen={() => router.push('/titles')} />
@@ -660,22 +713,30 @@ export default function MeScreen() {
       </View>
 
       {/*
-       * 五维（D48 起不在这里画，搬到了「状态」页）。
+       * 「状态」入口 D63 删掉了。
        *
-       * 原来这一页有五张一模一样的小卡，加上等级、经验、余烬、连胜、称号，
-       * 一页里塞了七种东西。用户要求「照抄人升的状态页」正好给了一次分工的机会：
-       *   - 状态页：人生等级 + 属性条 + 称号 ——「我走到了哪里」；
-       *   - 我的页：头像 + 名字 + Lv + 余烬 + 连胜 + 入口 ——「我是谁、我有什么」。
+       * 底栏本来就有一个「状态」tab（D48），而这一页又给了一个入口——
+       * 同一件事两个入口，用户会在两处各点一次，然后不确定哪个才是权威。
+       * 底栏那个永远在，所以删这里。
        *
-       * 数据一个字段都没改，五维仍然由打卡写入（services/checkin.ts）。
-       * 这里只留一个指向状态页的入口，因为它就是「看完这一页之后最自然的下一步」。
+       * 五维仍然不在这一页画（D48 搬走了），去看它们就走底栏的「状态」。
+       */}
+
+      {/*
+       * 复盘入口（D64）。
+       *
+       * 从日记页搬过来的：日记页现在只回答「我写过什么」，
+       * 而周复盘 / 月复盘是「总结」，不是「我写的字」。
+       *
+       * 不删掉这个入口：它是周复盘与月复盘**唯一**的进法，
+       * 删了等于把两个功能下线。
        */}
       <View style={{ marginTop: theme.spacing.cardGap, paddingHorizontal: theme.spacing.pageX }}>
         <Card padding={0}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="状态，看看等级和属性"
-            onPress={() => router.push('/status')}
+            accessibilityLabel="复盘，看看这一周和这一个月"
+            onPress={() => router.push('/review')}
             style={({ pressed }) => ({
               flexDirection: 'row',
               alignItems: 'center',
@@ -693,7 +754,7 @@ export default function MeScreen() {
                 fontFamily: theme.typography.fontFamily.body,
               }}
             >
-              状态
+              复盘
             </Text>
             <Text
               style={{
@@ -701,30 +762,27 @@ export default function MeScreen() {
                 lineHeight: theme.typography.lineHeight.caption,
                 color: palette.textMuted,
                 fontFamily: theme.typography.fontFamily.body,
-                fontVariant: ['tabular-nums'],
               }}
             >
-              {xpForNext > 0 ? `还差 ${xpForNext - player.xpInLevel} 到 Lv.${player.level + 1}` : '满级'}
+              一周 / 一个月
             </Text>
           </Pressable>
         </Card>
       </View>
 
-      {/* D1–D7 引导卡（本页负责第 5 天：「这些是你走到今天的样子」） */}
-      {guide.card ? (
-        <View style={{ paddingHorizontal: theme.spacing.pageX }}>
-          <GuideCardView
-            card={guide.card}
-            onAction={guide.runAction}
-            onDismiss={guide.dismiss}
-          />
-        </View>
-      ) : null}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  /** 五只容器并排（「我的」页的称号卡，D52）。间距走 theme.spacing，这里只定方向 */
+  titleMarksRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 6,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

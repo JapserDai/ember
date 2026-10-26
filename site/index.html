@@ -71,7 +71,8 @@
 
     <!--
       这个面板就是首页「今天」的骨架。它能点，逻辑与 App 一致：
-      点圆圈 → 火带前进 → 飘一个 +26；长按已记的行 → 撤销，火带退回。
+      点圆圈 → 火带前进 → 飘一个 +26；长按已记的行 → 撤销，火带退回；
+      右滑待办 → 露出「删」（App 的 D55，用 pointer 事件手写，不引库）。
       火带的画法也照抄 HearthBar：白纸上「深 = 热」，不是橙色。
     -->
     <div class="demo" role="group" aria-label="可以点的演示：试着点一下圆圈">
@@ -94,7 +95,10 @@
 
       <ul class="habit-list" id="habit-list"></ul>
 
-      <p class="demo-hint">点圆圈记一次；长按已经记过的那一行可以撤销。</p>
+      <p class="demo-todo-title">待办</p>
+      <ul class="todo-list" id="todo-list"></ul>
+
+      <p class="demo-hint">点圆圈记一次；长按已经记过的那一行可以撤销；右滑待办可以删。</p>
     </div>
   </section>
 

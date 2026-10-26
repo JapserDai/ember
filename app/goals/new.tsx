@@ -48,7 +48,7 @@ export default function NewGoalScreen() {
     if (router.canGoBack()) {
       router.back();
     } else {
-      // 直接深链进这一页时没有上一页，退回目标页（tab 路由）
+      // 直接深链进这一页时没有上一页，退回目标列表（D48 起是二级页）
       router.replace('/goals');
     }
   };

@@ -46,6 +46,32 @@ export interface Palette {
   warning: string;
   /** 危险状态（删除、清空），只用于操作确认，不用于评价用户 */
   danger: string;
+  /**
+   * 自然色（D59）。彩色元素（芽 / 花 / 太阳 / 地球 / 彩虹）用的那一组。
+   *
+   * ---- 为什么它是独立的一组 token，而不是复用 primary / accent ----
+   *
+   * 主色的语义在全项目里只有一个：**「可以点 / 已选中 / 正在发生」**（docs/02 §1.2）。
+   * 一旦让草也穿主色，那条语义就废了——用户看到蓝色会先想「这是不是能点」。
+   * 所以自然色是**另一组**，只给图形用，不参与任何交互语义。
+   *
+   * ---- 为什么每套主题各定一份 ----
+   *
+   * 理由同主题色：饱和的绿压在深底上会变脏，而提亮的绿压在白纸上会发飘。
+   * 白底那套取「饱和但压深」，夜航那套取「提亮 + 提饱和」。
+   */
+  nature: NatureTokens;
+  /**
+   * 洗色（D59）：把自然色兑到几乎看不见，铺在卡片上当**底色**。
+   *
+   * 与 `nature` 分开的理由：`nature` 是**墨**（画线用的），这是**纸**
+   * （垫在线底下的那一层）。同一个绿，画线要够深，垫底要够淡——
+   * 一个值做不到两件事。
+   *
+   * 取值方式：自然色向 `surface` 混 92%。所以白底上是「很淡的草绿」，
+   * 深底上是「很淡的墨绿」，两套都不刺眼。
+   */
+  natureTint: NatureTintTokens;
 
   // ---- 以下为派生值，不要手写 ----
   /** 次要文字：text 按一定透明度压在白底上，对比度仍 ≥ 4.5:1 */
@@ -70,6 +96,46 @@ export interface Palette {
    * 结果「弱的那股火」看起来像高光，跑到前面来了，正好相反。
    */
   primaryDeep: string;
+}
+
+/**
+ * 自然色（D59）。
+ *
+ * 六个颜色 + 一条彩虹的五段。全部**只用于图形**，不用于文字——
+ * 它们没有一个能在自己的底色上过 4.5:1，当正文色就是看不清。
+ *
+ * 命名按「自然界里那个东西」而不是按色相：`leaf` 不是「绿」，
+ * 它是「叶子该有的那个绿」。改色时改的是「叶子应该更黄一点」，
+ * 而不是「把 hue 往 60 挪 10 度」。
+ */
+export interface NatureTokens {
+  /** 叶子、草、芽 */
+  leaf: string;
+  /** 花、果 */
+  petal: string;
+  /** 太阳、光 */
+  sun: string;
+  /** 天、水 */
+  sky: string;
+  /** 地球、土 */
+  earth: string;
+  /** 彩虹的五段，从外到内 */
+  rainbow: readonly [string, string, string, string, string];
+}
+
+/**
+ * 洗色（D59）。六个自然色的「垫底版」。
+ *
+ * 全部由自然色向 surface 混合算出（`buildPalette` 里算），
+ * 组件不要自己拼透明度——同一个色在四套主题下透明度不同，
+ * 分散到各处必然有一处算错。
+ */
+export interface NatureTintTokens {
+  leaf: string;
+  petal: string;
+  sun: string;
+  sky: string;
+  earth: string;
 }
 
 /** 圆角 */
@@ -292,6 +358,7 @@ interface RawPalette {
   success: string;
   warning: string;
   danger: string;
+  nature: NatureTokens;
 }
 
 /** 派生规则：三档透明度 + 主色之上的文字 + 火心混合比例 */
@@ -308,6 +375,13 @@ interface PaletteOptions {
   highlightMix: number;
   /** 暗调主色往文字色混合的比例 */
   deepMix: number;
+  /**
+   * 洗色向 surface 混合的比例（D59）。
+   *
+   * 白底用 0.92（很淡的一层，卡片仍读成白纸）；
+   * 深底用 0.86（深底上同样的浓度看不出差别，要更重一档才成立）。
+   */
+  tintMix: number;
 }
 
 /** 由原始色板算出派生值 */
@@ -322,23 +396,36 @@ function buildPalette(raw: RawPalette, options: PaletteOptions): Palette {
     highlight: mixHex(raw.accent, '#FFFFFF', options.highlightMix),
     // 往文字色方向混合，得到更沉的那一笔
     primaryDeep: mixHex(raw.primary, raw.text, options.deepMix),
+    // 洗色：自然色向 surface 混 92%。92 是手调的——
+    // 85 还能看出是一块颜色（抢卡片），96 就看不出来了（等于没做）
+    natureTint: {
+      leaf: mixHex(raw.nature.leaf, raw.surface, options.tintMix),
+      petal: mixHex(raw.nature.petal, raw.surface, options.tintMix),
+      sun: mixHex(raw.nature.sun, raw.surface, options.tintMix),
+      sky: mixHex(raw.nature.sky, raw.surface, options.tintMix),
+      earth: mixHex(raw.nature.earth, raw.surface, options.tintMix),
+    },
   };
 }
 
 // ---------------------------------------------------------------------------
-// 四套色板
+// 两套色板（D59：从四套砍到两套）
 //
-// 阶段 1 只留了「白」一套（D27：功能没补齐前，好看不是最缺的）。
-// 阶段 4 把其余三套补回来（D40）。四套的**形状**完全一样——
-// 同一个 buildPalette、同一套 token 名，所以任何一页在四套下都长成同一个布局，
-// 只有颜色不同。这是「换主题」能成立的前提。
+// 阶段 1 只留了「白」一套（D27），阶段 4 补回四套（D40），
+// **D59 又砍回两套**：白与夜航。理由不是「四套太多」，而是四套里的
+// 苔原与晨光**各自的主张已经被别的两套覆盖了**——
 //
-// ---- 四套各自在说什么 ----
+//   - 苔原（灰绿低饱和）的主张是「降低存在感」，而「白」本来就是最低存在感的那一套，
+//     苔原只是把它的色相挪了一点，用户看不出「我今天想要苔原而不是白」；
+//   - 晨光（暖白）的主张是「清早」，而那是**时间**的主张，不是**主题**的主张——
+//     想要清早的感觉，D56 的天光横带已经在做这件事了。
+//
+// 两套的分工是清楚的、互斥的：**日间 / 夜间**。
+//
+// ---- 两套各自在说什么 ----
 //
 //   白（furnace 沿用旧 id）  干净、日间、Microsoft To Do 的语汇。默认。
 //   夜航（nightvoyage）      深底、冷色、晚上用。
-//   苔原（tundra）          灰绿、低饱和、安静。
-//   晨光（daybreak）        亮、偏暖、清早用。
 //
 // ---- 为什么 id 仍是旧的那四个 ----
 //
@@ -367,6 +454,18 @@ const whitePalette = buildPalette(
     success: '#107C10',
     warning: '#8A5300',
     danger: '#A4262C',
+    // 清晨的三种天光：沙白 → 杏 → 藕蓝。三段都压在中高明度上，
+    // 墨色才敢用深蓝紫（#2B3350，压在 via 上 6.1:1）
+    // 白底上的自然色：**压深**。白纸上放纯饱和色会「飘」——
+    // 绿要带一点蓝、红要带一点土，才压得住纸的亮。
+    nature: {
+      leaf: '#3F7A3A',
+      petal: '#C2543F',
+      sun: '#C0830A',
+      sky: '#3A6FA8',
+      earth: '#4A7C6F',
+      rainbow: ['#C2543F', '#C0830A', '#3F7A3A', '#3A6FA8', '#7A5AA8'],
+    },
   },
   {
     borderAlpha: 0.12,
@@ -377,6 +476,7 @@ const whitePalette = buildPalette(
     onPrimary: '#FFFFFF',
     highlightMix: 0.5, // → #80BCEA
     deepMix: 0.28, // → #1B4A94
+    tintMix: 0.92,
   },
 );
 
@@ -402,6 +502,19 @@ const nightPalette = buildPalette(
     success: '#4CC26A',
     warning: '#D9A441',
     danger: '#F06A6A',
+    // 深底上的自然色：**提亮 + 提饱和**。白底那套的 #3F7A3A 压在 #12141A 上
+    // 只有 2.4:1，读起来像一块脏绿；提到 #6FBF6A 之后才是「夜里的草」。
+    //
+    // petal 取偏珊瑚的 #FF8A70 而不是更红的 #F06A6A：红在深底上会读成「危险」，
+    // 而这个颜色在「我的」页是身份卡的底色，那里不该有警告的意味。
+    nature: {
+      leaf: '#6FBF6A',
+      petal: '#FF8A70',
+      sun: '#F2C14E',
+      sky: '#79B4E8',
+      earth: '#6FBFB0',
+      rainbow: ['#FF8A70', '#F2C14E', '#6FBF6A', '#79B4E8', '#B49AEA'],
+    },
   },
   {
     borderAlpha: 0.18,
@@ -412,64 +525,11 @@ const nightPalette = buildPalette(
     onPrimary: '#0B0D12', // 亮蓝底上用深字，比白字清楚
     highlightMix: 0.35,
     deepMix: 0.35,
-  },
-);
-
-/**
- * 「苔原」—— 灰绿、低饱和、安静。
- *
- * 这一套的立场是「降低存在感」：主色是暗绿而不是蓝，
- * 强调色也压得很低。适合「不想被 App 的存在感打扰」的那种日子。
- * 仍然保证正文 11:1、次要 4.8:1。
- */
-const tundraPalette = buildPalette(
-  {
-    primary: '#2E6B5A', // 深绿：可点 / 选中
-    secondary: '#5C6660', // 灰绿
-    background: '#F2F4F1', // 极淡的灰绿底
-    surface: '#FFFFFF',
-    text: '#2B332F', // 偏绿的深灰
-    accent: '#3E8A72',
-    success: '#3D7A4A',
-    warning: '#7A5A1E',
-    danger: '#963B3B',
-  },
-  {
-    borderAlpha: 0.14,
-    ruleAlpha: 0.22,
-    mutedAlpha: 0.68,
-    onPrimary: '#FFFFFF',
-    highlightMix: 0.45,
-    deepMix: 0.3,
-  },
-);
-
-/**
- * 「晨光」—— 亮、偏暖、清早用。
- *
- * 只有亮版（原设计就是如此：它的主张是「清早、想清醒一点」，
- * 而清早不存在暗色版本）。底色比「白」更暖一档，主色取偏橙的深棕，
- * 因为清晨的第一眼不该是一块蓝。
- */
-const daybreakPalette = buildPalette(
-  {
-    primary: '#8A4B12', // 深棕橙：可点 / 选中。对比度 6.8:1
-    secondary: '#6B5C4E',
-    background: '#FDF8F0', // 暖白底
-    surface: '#FFFFFF',
-    text: '#33291F', // 暖深褐
-    accent: '#C97A2B',
-    success: '#4A7A2B',
-    warning: '#8A5A00',
-    danger: '#A32B2B',
-  },
-  {
-    borderAlpha: 0.12,
-    ruleAlpha: 0.2,
-    mutedAlpha: 0.68,
-    onPrimary: '#FFFFFF',
-    highlightMix: 0.5,
-    deepMix: 0.3,
+    // 深底上洗色与浅底用**同一个浓度**（0.92）。
+    // 试过 0.86（更浓一档），但那样洗色与卡片的对比度到了 1.28:1，
+    // 卡片会读成「一块颜色」而不是「一张纸」——与白底那边破了同一条规矩。
+    // 深底的差异靠「自然色本身被提亮过」拉开，不靠浓度。
+    tintMix: 0.92,
   },
 );
 
@@ -484,8 +544,6 @@ const daybreakPalette = buildPalette(
 export const PALETTES = {
   furnace: whitePalette,
   nightvoyage: nightPalette,
-  tundra: tundraPalette,
-  daybreak: daybreakPalette,
 } as const;
 
 /**
@@ -502,13 +560,30 @@ export type { ThemeId } from '../db/schema';
 import type { ThemeId as SchemaThemeId } from '../db/schema';
 
 /**
- * 四套色板必须覆盖 schema 里声明的**每一个** id。
+ * schema 里声明的**每一个** id 都必须能取到一套色板。
  *
- * 这一行是这里唯一的防线：schema 加了 'dusk' 而这里没加色板时，
- * TS 会在编译期报错，而不是等到用户选了它才白屏。
+ * ---- D59 之后这里为什么是「别名」而不是「四套色板」----
+ *
+ * schema 的 `ThemeId` 仍是四个值（v1 建表 + v2 迁移写死的 CHECK，按 D31 不许改）。
+ * 而界面只剩两套（白 / 夜航）。所以苔原与晨光**映射到白**：
+ *
+ *   tundra   → 白   （它的主张「降低存在感」已经被白覆盖）
+ *   daybreak → 白   （它的主张「清早」是时间的主张，D56 的天光横带在做）
+ *
+ * 这一行仍然是那道防线：schema 里加了 'dusk' 而这里忘了处理时，
+ * TS 会在编译期报错，而不是等到用户库里存了那个值才白屏。
  */
-const palettesCoverSchema: Record<SchemaThemeId, Palette> = PALETTES;
-void palettesCoverSchema;
+const PALETTE_ALIASES: Record<SchemaThemeId, keyof typeof PALETTES> = {
+  furnace: 'furnace',
+  nightvoyage: 'nightvoyage',
+  tundra: 'furnace',
+  daybreak: 'furnace',
+};
+
+/** 取一套色板。不认识的 id 落到默认（白），而不是白屏 */
+function paletteOf(id: SchemaThemeId): Palette {
+  return PALETTES[PALETTE_ALIASES[id] ?? 'furnace'];
+}
 
 /** 主题 id 类型。上面已经转出，这里只给本文件内部用 */
 type ThemeId = SchemaThemeId;
@@ -517,18 +592,26 @@ type ThemeId = SchemaThemeId;
 export const THEME_LABEL: Record<ThemeId, { name: string; note: string }> = {
   furnace: { name: '白', note: '干净、日间。默认。' },
   nightvoyage: { name: '夜航', note: '深底冷色，晚上看。' },
-  tundra: { name: '苔原', note: '灰绿、低饱和，安静一点。' },
-  daybreak: { name: '晨光', note: '暖白底，清早看。' },
+  // tundra / daybreak 两套已删（D59）。**但 ThemeId 这个类型里仍然有它们**——
+  // 那是数据库 CHECK 的镜像（v1 建表 + v2 迁移写死的四个值），按 D31 不许改。
+  // 所以这里必须给出**回退**：库里存着这两个值时显示成「白」，
+  // 而不是让 THEME_LABEL[id] 变成 undefined 然后白屏。
+  tundra: { name: '白', note: '这一套已经合并进「白」了。' },
+  daybreak: { name: '白', note: '这一套已经合并进「白」了。' },
 };
 
 /** 默认主题 */
 export const DEFAULT_THEME_ID: ThemeId = 'furnace';
 
 /**
- * 把一个 id 规范成四套之一。
+ * 把一个 id 规范成**能取到色板**的那几个之一。
  *
  * 库里可能存着不认识的 id（手改过、或来自别的版本），
  * 那时退回默认——而不是让界面白屏。
+ *
+ * D59 起：`tundra` / `daybreak` 会被规范成 `furnace`（两套已删，见 PALETTE_ALIASES）。
+ * 也就是说用户下次打开 App 时，那两套会**静默变成白**——
+ * 这是删主题的代价，写进了 D59。
  */
 export function normalizeThemeId(value: unknown): ThemeId {
   if (typeof value === 'string' && value in PALETTES) return value as ThemeId;
@@ -538,7 +621,7 @@ export function normalizeThemeId(value: unknown): ThemeId {
 /**
  * 主题的形状（圆角 / 间距 / 字号 / 动效）。
  *
- * 四套主题**共用**这一份：它们只差色板。
+ * 两套主题**共用**这一份：它们只差色板。
  * 这是有意的：如果每套主题都能改圆角与间距，
  * 那「每加一页要在四套下各看一遍」就会变成「每加一页要在四套下重调一遍布局」。
  */
@@ -592,7 +675,7 @@ const themeShape: Omit<Theme, 'palette'> = {
  * 所以它必须是纯的、无副作用的。
  */
 export function buildTheme(id: ThemeId): Theme {
-  return { ...themeShape, palette: PALETTES[normalizeThemeId(id)] };
+  return { ...themeShape, palette: paletteOf(normalizeThemeId(id)) };
 }
 
 /**

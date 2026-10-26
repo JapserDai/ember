@@ -106,7 +106,12 @@ export const BACKUP_TABLES: readonly BackupTableSpec[] = [
       'id', 'display_name', 'level', 'xp_total', 'xp_in_level', 'highest_level',
       'attr_body_xp', 'attr_mind_xp', 'attr_order_xp', 'attr_spirit_xp', 'attr_bond_xp',
       'attr_body_pts', 'attr_mind_pts', 'attr_order_pts', 'attr_spirit_pts', 'attr_bond_pts',
-      'ember', 'material', 'refined_material', 'last_event_reward_month',
+      'ember', 'material', 'refined_material',
+      // D53：商店扩成四类时加的三个持有物列（迁移 v14→v15）。
+      // 漏了它们 = 用户导出再导入，宽限券/护盾/回看券全部归零（铁律二）。
+      // 旧备份（v14 及更早）里没有这三列，导入端按默认值 0 处理。
+      'grace_tickets', 'streak_shields', 'restore_tokens',
+      'last_event_reward_month',
       // D1–D7 引导的起算日（迁移 v12→v13）。不加进来会让用户导入旧备份后
       // 这一列变成 NULL——看上去只是「引导重新开始」，实际是锚点丢了。
       // 旧文件里本来就没这一列，导入端把它当 NULL 处理（与 seed 后的新库同构）。
@@ -126,6 +131,11 @@ export const BACKUP_TABLES: readonly BackupTableSpec[] = [
     columns: [
       'id', 'player_id', 'day_start_hour', 'last_settled_date', 'week_starts_on',
       'difficulty', 'theme_id', 'theme_mode', 'reduce_motion', 'haptics_enabled',
+      // home_prefs 是 v16 才有的列（D62）。**它必须在这个白名单里**——
+      // 漏了不会报错，只会让用户的首页偏好在导出再导入之后静默消失
+      'home_prefs',
+      // journal_prefs 是 v16 才有的列（D65）。同 home_prefs：漏了会静默丢偏好
+      'journal_prefs',
       'max_seen_utc', 'last_time_zone', 'created_at', 'updated_at',
     ],
     required: ['id', 'player_id', 'day_start_hour'],

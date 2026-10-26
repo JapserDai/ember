@@ -150,7 +150,8 @@ export function canUndoCheckin(localDate: string, lastSettledDate: string | null
  * 完成一次打卡。
  *
  * 全部写操作在同一个事务里（docs/04 §5.1）：写打卡 + 改玩家 + 待办置完成，
- * 三件事要么都成，要么都不成。中途抛错时 expo-sqlite 自动回滚，
+ * 三件事要么都成，要么都不成。（D55 起待办不再从前端发起算分，
+ * 这一步只对「目标页挂上来的任务」与「导入的旧数据」有效。）中途抛错时 expo-sqlite 自动回滚，
  * 不会留下「打卡记上了但经验没加」这种半截状态。
  */
 export function scoreTask(input: ScoreTaskInput): ScoreTaskResult {
@@ -234,8 +235,21 @@ export function scoreTask(input: ScoreTaskInput): ScoreTaskResult {
     });
     replaceAttributes(result.player.attributes);
 
-    // ---------- 7. 待办收尾 ----------
-    // 必须在事务里：否则会出现「打卡成功但待办还开着」
+    /*
+     * ---------- 7. 待办收尾（D55 之后是死代码，但留着） ----------
+     *
+     * 首页已经不再给待办算分（D55：待办没有完成态、不发 XP），
+     * 所以从今天页走到这里的 todo 永远不会出现。
+     *
+     * **但不能删。** 还有两条路能进来：
+     *   1. 目标详情页挂上来的任务，如果它 type 是 todo，别处仍可能调 scoreTask；
+     *   2. 导入回来的旧备份里可能带着「待办 + 已打卡」的组合。
+     *
+     * 删掉这段的后果是：一条被算过分的待办停在 status='active'，
+     * 首页照常列着它，而它其实已经有打卡了——点删除、点勾选都对不上账。
+     *
+     * 保留它的代价是「一处没人走的代码」，所以上面这几行注释是它的墓碑。
+     */
     if (task.type === 'todo') {
       updateTaskStatus(task.id, 'done');
     }
@@ -329,9 +343,15 @@ export function undoCheckin(input: UndoCheckinInput): UndoCheckinResult {
     });
     replaceAttributes(attrs);
 
-    // ---------- 5. 待办重新打开 ----------
-    // 只在「它确实因此被关掉」时重开：如果这之后又记过一次（理论上不会，
-    // 同一天同一任务只有一条有效记录，但导入的数据可能不守规矩），别动它
+    /*
+     * ---------- 5. 待办重新打开（D55 之后是死代码，理由同上） ----------
+     *
+     * 撤销一条被算过分的待办时，把它从 'done' 放回 'active'，
+     * 否则它会永远从首页消失、而用户没有任何入口能把它找回来。
+     *
+     * 只在「它确实因此被关掉」时重开：如果这之后又记过一次（理论上不会，
+     * 同一天同一任务只有一条有效记录，但导入的数据可能不守规矩），别动它。
+     */
     if (task && task.type === 'todo' && task.status === 'done') {
       const other = getActiveCheckin(task.id, checkin.localDate);
       if (!other) updateTaskStatus(task.id, 'active');

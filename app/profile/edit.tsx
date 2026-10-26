@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -13,7 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getPlayerSnapshot, type PlayerSnapshot } from '../../src/db/repo/player';
-import { BIO_MAX, NAME_MAX, charCount } from '../../src/domain/profile';
+import { NAME_MAX, charCount } from '../../src/domain/profile';
 import { saveProfile } from '../../src/services/profile';
 import { useTheme } from '../../src/theme/ThemeProvider';
 
@@ -23,14 +23,15 @@ import { useTheme } from '../../src/theme/ThemeProvider';
  * 从「我的」页点名字进入（`app/profile/edit.tsx`）。不在 tab 里，
  * 打开后底栏消失，页面上唯一的出口是左上角的「返回」——和设置页同一个模式。
  *
- * 只编辑两样：名字、一句自我介绍。
+ * 只编辑一样：名字（D63 删掉了「一句自我介绍」的输入框，
+ * 字段与库里已有的内容都保留，只是这一版没有编辑入口）。
  * **头像不在这里**：换头像是点头像就开面板的一步动作（docs/02 §4.3），
  * 把它搬进这张表单会变成「改完名字再滚下去换头像再回来保存」，
  * 而换头像本来就是即时生效的，不该被「保存」按钮拖住。
  *
  * 为什么表单只有两行也要单独一页，而不是在「我的」页就地编辑：
  *   这一页最重要的是名字——它是整个 App 里最常被别处引用的字段
- *   （页头、以后的回忆叙述、导出文件）。就地编辑会让「我的」页在
+ *   （页头、以后的叙事、导出文件）。就地编辑会让「我的」页在
  *   编辑状态下多出一个键盘、一个保存按钮，把等级和五维挤下去。
  *
  * 保存策略：**只有点「保存」才写库**，不做「失焦即保存」。
@@ -62,13 +63,10 @@ export default function ProfileEditScreen() {
   const [initial] = useState(loadProfile);
 
   const [name, setName] = useState(initial?.displayName ?? '');
-  const [bio, setBio] = useState(initial?.bio ?? '');
   /** 正在保存。保存期间按钮不给点，避免连点写两遍 */
   const [saving, setSaving] = useState(false);
   /** 已经成功保存过一次。用来决定返回时要不要提醒「还没保存」 */
   const [savedOnce, setSavedOnce] = useState(false);
-
-  const bioRef = useRef<React.ComponentRef<typeof TextInput>>(null);
 
   /**
    * 有没有未保存的改动。
@@ -78,10 +76,8 @@ export default function ProfileEditScreen() {
    * 而烦人的确认框最后一定会被用户条件反射地按掉。
    */
   const dirty = useMemo(() => {
-    const nameChanged = name.trim() !== (initial?.displayName ?? '').trim();
-    const bioChanged = bio.trim() !== (initial?.bio ?? '').trim();
-    return nameChanged || bioChanged;
-  }, [name, bio, initial]);
+    return name.trim() !== (initial?.displayName ?? '').trim();
+  }, [name, initial]);
 
   /**
    * 保存成功后返回。
@@ -112,7 +108,15 @@ export default function ProfileEditScreen() {
     if (saving) return;
     setSaving(true);
     try {
-      const result = saveProfile({ name, bio });
+      /*
+       * `bio` 传的是**库里原来那个值**，不是空串。
+       *
+       * D63 把这一页的自我介绍输入框删了，但 `player.bio` 这一列与
+       * 用户已经写过的话都保留着。如果这里传 ''，`saveProfile` 会把它规范化成
+       * 空串并写成 NULL——等于「改一次名字，顺手把自我介绍抹掉」，
+       * 而用户完全不知道自己做了什么。
+       */
+      const result = saveProfile({ name, bio: initial?.bio ?? '' });
       if (!result.ok) {
         Alert.alert('没存下来', result.message);
         return;
@@ -122,10 +126,9 @@ export default function ProfileEditScreen() {
     } finally {
       setSaving(false);
     }
-  }, [saving, name, bio, leave]);
+  }, [saving, name, initial, leave]);
 
   const nameCount = charCount(name.trim());
-  const bioCount = charCount(bio.trim());
 
   return (
     <KeyboardAvoidingView
@@ -193,7 +196,7 @@ export default function ProfileEditScreen() {
             maxLength={NAME_MAX * 2}
             // 名字是一行。回车键收键盘，而不是插入换行
             returnKeyType="done"
-            onSubmitEditing={() => bioRef.current?.focus()}
+            onSubmitEditing={handleSave}
             autoCorrect={false}
             // 不自动大写：中文没有大小写，英文名字用户自己会决定
             autoCapitalize="none"
@@ -214,53 +217,13 @@ export default function ProfileEditScreen() {
           <Counter current={nameCount} max={NAME_MAX} />
         </View>
 
-        {/* ---- 一句自我介绍 ---- */}
-        <View style={{ marginTop: theme.spacing.xl, paddingHorizontal: theme.spacing.pageX }}>
-          <FieldLabel text="一句话" />
-          <TextInput
-            ref={bioRef}
-            value={bio}
-            onChangeText={setBio}
-            placeholder="想写点什么就写点什么。不写也可以。"
-            placeholderTextColor={palette.textMuted}
-            maxLength={BIO_MAX * 2}
-            multiline
-            // 多行输入的高度给到 3 行：80 字在手机上一行放不下，
-            // 而只有一行高的框会让人以为只能写一句短语
-            style={{
-              marginTop: theme.spacing.xs,
-              minHeight: theme.typography.lineHeight.body * 3,
-              paddingVertical: theme.spacing.sm,
-              borderBottomWidth: 1,
-              borderBottomColor: palette.border,
-              fontSize: theme.typography.size.body,
-              lineHeight: theme.typography.lineHeight.body,
-              color: palette.text,
-              fontFamily: theme.typography.fontFamily.body,
-              // Android 的多行输入默认垂直居中，要顶对齐
-              textAlignVertical: 'top',
-            }}
-            accessibilityLabel="一句自我介绍"
-          />
-          <Counter current={bioCount} max={BIO_MAX} />
-
-          {/*
-           * 这句说明是这一页唯一一句「解释为什么」，写在输入框下面而不是上面：
-           * 上面放说明会让人以为那是必填提示。
-           * 文案只说事实（不会被评价），不说「请认真填写」。
-           */}
-          <Text
-            style={{
-              marginTop: theme.spacing.md,
-              fontSize: theme.typography.size.caption,
-              lineHeight: theme.typography.lineHeight.body,
-              color: palette.textMuted,
-              fontFamily: theme.typography.fontFamily.body,
-            }}
-          >
-            这两样只留在这台手机上，不会被谁看到，也不会被评价。
-          </Text>
-        </View>
+        {/*
+         * 一句自我介绍（`player.bio`）的输入框 D63 删掉了。
+         *
+         * 字段与库里已经写过的内容都保留，只是这一版没有编辑入口。
+         * 这一页现在只改名字——一个只有一个输入框的表单，
+         * 比一个「名字 + 一句可有可无的话」的表单更容易填完。
+         */}
 
         {/* ---- 保存 ---- */}
         <View style={{ marginTop: theme.spacing.xl, paddingHorizontal: theme.spacing.pageX }}>

@@ -85,7 +85,7 @@ function loadSettingsValues(): SettingsValues {
 }
 
 export default function SettingsScreen() {
-  const { theme, palette, reduceMotion, setReduceMotion, themeId } = useTheme();
+  const { theme, palette, themeId } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
@@ -126,28 +126,21 @@ export default function SettingsScreen() {
   }, []);
 
   /**
-   * 切换「减少动效」。
+   * 「动效」开关 D66 删掉了。
    *
-   * 这是外观走查里发现的一个真问题：`reduce_motion` 早先是一个
-   * **只读**设置——代码到处在读它（火带、飘字、勾选圈都因此停播），
-   * 但界面上没有任何地方能把它打开。也就是说这个开关存在、有效、写进了库，
-   * 用户却永远只能用它的默认值（关）。
+   * 它原本是一个能用的设置：`reduce_motion` 写进库，火带、飘字、
+   * 勾选圈都读它，打开之后那几处都不播。问题不在它没用，
+   * 而在**用户看不出它做了什么**——
+   *   1. 设置页本身一个动画都没有，改完停在原地，屏幕上什么都不会变；
+   *   2. 回到「今天」页能看到的只有一处（记录时的飘字），
+   *      其余要么只闪 280ms、要么根本触发不到。
    *
-   * 放在这一页是有理由的：「减少动效」属于「把 App 调成你想要的样子」（外观），
-   * 与难度、日界那种业务设置不同。所以它从 `readonly` 变成 `interactive`。
-   *
-   * 写库与改内存态都交给 ThemeProvider（先写库、再改态），
-   * 写库失败时界面不会先变——与这个文件里其它写库动作同一条规矩。
+   * 所以开关从界面上消失了。`settings.reduce_motion` 列仍然留在表里
+   * （D31：已发布的建表常量不许改），`ThemeProvider` 仍然持有这个值，
+   * 六个组件仍然读它——**行为一点没变**，只是没有入口了。
+   * 将来想接回来（比如改成三档，或做成跟随系统的无障碍设置），
+   * 在这里加一行 `SettingsRow` 就行，不需要动任何组件。
    */
-  const handleToggleMotion = useCallback(() => {
-    const next = !reduceMotion;
-    try {
-      setReduceMotion(next);
-    } catch (err) {
-      console.warn('[Ember] 保存动效设置失败', err);
-      Alert.alert('没存下来', '这个设置刚才没写进去，再试一次。');
-    }
-  }, [reduceMotion, setReduceMotion]);
 
   /**
    * 确认一只头像。
@@ -207,13 +200,13 @@ export default function SettingsScreen() {
           state: 'interactive',
           onPress: () => router.push('/profile/edit'),
         },
-        {
-          label: '一句自我介绍',
-          // 没写时显示「还没写」而不是空白：空白看起来像这一行坏了
-          value: player ? (player.bio ? player.bio : '还没写') : '—',
-          state: 'interactive',
-          onPress: () => router.push('/profile/edit'),
-        },
+        /*
+         * 「一句自我介绍」这一行 D63 删掉了。
+         *
+         * 字段（`player.bio`）与库里已经写过的内容**都保留**——
+         * 这一版只是不再有任何入口去读它或写它。将来想接回来，
+         * 在这一行与「我的」页的身份卡各加一段渲染即可。
+         */
       ],
     },
     {
@@ -235,11 +228,32 @@ export default function SettingsScreen() {
           state: 'interactive',
           onPress: () => router.push('/settings/theme'),
         },
+        /*
+         * 「动效」那一行 D66 删掉了——见上面 handleToggleMotion 位置的注释。
+         */
+        /*
+         * 首页设置（D62）。
+         *
+         * 放在「外观」而不是单独一组：它改的是「今天」那一页的样子，
+         * 与主题、动效是同一类东西——都是「看起来怎样」，不是「算得怎样」。
+         */
         {
-          label: '动效',
-          value: reduceMotion ? '已减弱' : '完整',
+          label: '首页',
+          value: '月历 / 火带 / 待办条数',
           state: 'interactive',
-          onPress: handleToggleMotion,
+          onPress: () => router.push('/settings/home'),
+        },
+        /*
+         * 日记设置（D65）。放在「外观」这一组里是勉强合适：
+         * 其中「字数计数」是外观，而「字数上限」「历史条数」其实改了行为。
+         * 单独给它一组会让设置页变成六个分组（现在四个），
+         * 而这一页的规矩是「分组要少到能一眼看完」。
+         */
+        {
+          label: '日记',
+          value: '字数上限 / 历史条数',
+          state: 'interactive',
+          onPress: () => router.push('/settings/journal'),
         },
       ],
     },
@@ -247,8 +261,26 @@ export default function SettingsScreen() {
       title: '节奏',
       note: '',
       rows: [
-        { label: '难度', value: values.difficulty, state: 'readonly' },
-        { label: '日界', value: `凌晨 ${values.dayStartHour} 点`, state: 'readonly' },
+        /*
+         * 难度与日界从「只读」变成可选（D62）。
+         *
+         * 它们从 v1 就在表里，但界面从来没有接上——所以这个 App 的三档难度
+         * 与日界，此前**没有任何用户改过**，所有人跑的都是默认值。
+         *
+         * 难度有一个禁改窗口（有缺口且能修时不许改，见那个页面里的注释）。
+         */
+        {
+          label: '难度',
+          value: values.difficulty,
+          state: 'interactive',
+          onPress: () => router.push('/settings/difficulty'),
+        },
+        {
+          label: '日界',
+          value: `凌晨 ${values.dayStartHour} 点`,
+          state: 'interactive',
+          onPress: () => router.push('/settings/day-start'),
+        },
         { label: '提醒', value: '每个任务各设各的', state: 'interactive', onPress: () => router.push('/settings/reminders') },
       ],
     },

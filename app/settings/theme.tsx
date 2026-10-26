@@ -59,7 +59,9 @@ export default function ThemeScreen() {
     }
   };
 
-  const ids: ThemeId[] = ['furnace', 'nightvoyage', 'tundra', 'daybreak'];
+  // D59：只剩两套。苔原与晨光已删——`ThemeId` 类型里仍有它们（数据库 CHECK 的镜像），
+  // 但选择页不该列出「选了等于没选」的选项。
+  const ids: ThemeId[] = ['furnace', 'nightvoyage'];
 
   return (
     <ScrollView
@@ -184,7 +186,9 @@ function ThemeCard({
 }) {
   const { theme, palette } = useTheme();
   // 预览要用目标主题的色板，所以这里不能只靠 useTheme 的 palette
-  const preview = PALETTES[id];
+  // 预览要用目标主题的色板。`tundra` / `daybreak` 已不在 PALETTES 里（D59），
+  // 所以这里要有回退——虽然选择页不会列出它们，但类型上它们仍可能出现。
+  const preview = PALETTES[id as keyof typeof PALETTES] ?? PALETTES.furnace;
   const meta = THEME_LABEL[id];
 
   return (

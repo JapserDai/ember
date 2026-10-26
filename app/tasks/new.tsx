@@ -217,12 +217,34 @@ export default function NewTaskScreen() {
           />
           <TypeOption
             label="只做一次"
-            hint="做完就收起来，不会每天出现"
+            hint="一件记着要做的事，做完就删掉它"
             selected={type === 'todo'}
             onPress={() => setType('todo')}
           />
         </View>
       </View>
+
+      {/*
+       * 「只做一次」不发经验：这一句必须在表单上就说清楚。
+       *
+       * D55 把待办削成了「只添加、删除」的便签——没有完成状态，也就不计分。
+       * 如果不说，用户会建了十条待办、做完、发现 XP 一点没涨，
+       * 再回来找原因。这类「事后才发现」比在表单上多一句话贵得多。
+       */}
+      {type === 'todo' ? (
+        <View style={{ marginTop: theme.spacing.md, paddingHorizontal: theme.spacing.pageX }}>
+          <Text
+            style={{
+              fontSize: theme.typography.size.caption,
+              lineHeight: theme.typography.lineHeight.body,
+              color: palette.textMuted,
+              fontFamily: theme.typography.fontFamily.body,
+            }}
+          >
+            待办是一条备忘，不发经验。想攒 XP 就写成「每天」。
+          </Text>
+        </View>
+      ) : null}
 
       {/*
        * 截止日：只有「只做一次」才出现。
@@ -237,7 +259,13 @@ export default function NewTaskScreen() {
         </View>
       ) : null}
 
-      {/* 属性：只显示猜测结果，不给选 */}
+      {/*
+       * 属性：只显示猜测结果，不给选。
+       *
+       * 待办（只做一次）不显示这一行：属性点是跟着打卡发的，而待办不再计分，
+       * 那么「会记到『心智』」就是一种误导——它其实什么也不会记。
+       */}
+      {type === 'todo' ? null : (
       <View
         style={{
           marginTop: theme.spacing.lg,
@@ -257,6 +285,7 @@ export default function NewTaskScreen() {
             : '写完之后，会按名字猜一个属性。它不影响任何数值。'}
         </Text>
       </View>
+      )}
 
       {/* 保存 */}
       <View

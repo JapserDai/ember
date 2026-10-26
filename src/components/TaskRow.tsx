@@ -11,7 +11,6 @@ import {
 } from 'react-native';
 
 import { AwardFloat } from './AwardFloat';
-import { Card } from './Card';
 import { TodoCheckbox } from './TodoCheckbox';
 import { useTheme } from '../theme/ThemeProvider';
 
@@ -45,6 +44,18 @@ import { useTheme } from '../theme/ThemeProvider';
  * 用两种符号去表达同一件事，只会让人多学一套规则。
  *
  * 这一行的圆点因此换成了 TodoCheckbox 组件本身，不是另画一个。
+ *
+ * ---- D55 之后：外框与删除都搬走了 ----
+ *
+ * 这一行不再自带 Card：首页把它裹进 `components/SwipeToDelete`，
+ * 由那一层提供白卡片、圆角与「左滑露出删」（D65）。这么拆的理由是**删除只该有一处实现**——
+ * 待办卡与习惯行都要能删，各写一遍手势与吸附逻辑必然有一处漏掉。
+ *
+ * 早先这里有一个「编辑态才出现」的行内「删」按钮，注释里写着
+ * 「为什么不用左滑删除：要装 gesture-handler、左滑是隐藏手势、新用户不会发现」。
+ * 那三条批评现在依然成立，所以改成滑动删除时补了两件事：
+ *   1. 用 RN 自带的 PanResponder（不装 gesture-handler，D47 不许）；
+ *   2. 页头常备一句「左滑可以删」，第一张卡还会自己轻推一下。
  */
 
 export interface TaskRowProps {
@@ -64,14 +75,6 @@ export interface TaskRowProps {
   /** 长按：部分完成 / 跳过菜单（阶段 2） */
   onLongPress?: () => void;
   /**
-   * 显示右侧的「删」按钮。
-   *
-   * 只在首页进入编辑态时传进来，平时是 undefined（行尾什么都不画）。
-   * 为什么不用左滑删除：那要装 gesture-handler，而且左滑是隐藏手势，
-   * 新用户不会发现；一个明确的「删」字反而更快，也更难误触。
-   */
-  onDelete?: () => void;
-  /**
    * 刚记完要飘出来的字（例如「+26」）。undefined 表示不飘。
    * 与 `floatNonce` 一起用：nonce 变了才重播，连点两件时第二件也会飘。
    */
@@ -88,7 +91,6 @@ export function TaskRow({
   disabled = false,
   onPress,
   onLongPress,
-  onDelete,
   floatText,
   floatNonce = 0,
   style,
@@ -127,7 +129,6 @@ export function TaskRow({
   const statusText = done ? '今天这一项已经记过了' : streakText;
 
   return (
-    <Card style={{ marginBottom: 8 }} padding={theme.spacing.cardPadding}>
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${title}，${statusText}`}
@@ -169,7 +170,10 @@ export function TaskRow({
         styles.row,
         {
           minHeight: 44,
-          paddingVertical: theme.spacing.xs,
+          // 卡片外框现在由 components/SwipeToDelete 提供（D55），
+          // 所以内边距从这里出，而不是再从 Card 传一次
+          paddingHorizontal: theme.spacing.cardPadding,
+          paddingVertical: theme.spacing.md,
           // 已完成的行按下不变暗：它本来就已经退到灰里了，再变暗像是禁用
           opacity: pressed && !disabled ? 0.55 : 1,
         },
@@ -247,45 +251,7 @@ export function TaskRow({
         </Text>
       </View>
 
-      {/*
-       * 删除按钮。
-       *
-       * 只有编辑态才出现（onDelete 有值）。它是这一行里的第二个可点区域，
-       * 必须和「记录一次」分开：外面那层 Pressable 只负责记录，
-       * 这个按钮自己吃掉点击，不会顺带记一笔。
-       *
-       * 文字用「删」而不是垃圾桶图标：这里没有图标库，而一个汉字在
-       * 比手画的垃圾桶稳。
-       */}
-      {onDelete ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`删除 ${title}`}
-          onPress={onDelete}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          style={({ pressed }) => ({
-            marginLeft: theme.spacing.sm,
-            minWidth: theme.touchTarget,
-            minHeight: theme.touchTarget,
-            alignItems: 'flex-end',
-            justifyContent: 'center',
-            opacity: pressed ? 0.5 : 1,
-          })}
-        >
-          <Text
-            style={{
-              fontSize: theme.typography.size.label,
-              lineHeight: theme.typography.lineHeight.label,
-              color: palette.danger,
-              fontFamily: theme.typography.fontFamily.body,
-            }}
-          >
-            删
-          </Text>
-        </Pressable>
-      ) : null}
     </Pressable>
-    </Card>
   );
 }
 

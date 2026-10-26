@@ -12,23 +12,18 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Card } from '../../src/components/Card';
-import { GuideCardView } from '../../src/components/GuideCardView';
-import { useGuideCard, GUIDE_HOST } from '../../src/components/useGuideCard';
+import { CalendarCard } from '../../src/components/CalendarCard';
 import { HearthBar } from '../../src/components/HearthBar';
-import { QuickStart } from '../../src/components/QuickStart';
+import { SwipeToDelete } from '../../src/components/SwipeToDelete';
 import { TaskRow } from '../../src/components/TaskRow';
 import { AddButton } from '../../src/components/AddButton';
 import { TodoCard } from '../../src/components/TodoCard';
-import { createTask } from '../../src/db/repo/tasks';
-import { getPlayerId } from '../../src/db/repo/player';
 import {
   businessDate,
   formatDateLabel,
   greetingForHour,
   hourOf,
 } from '../../src/domain/date';
-import { QUICK_HABIT_TEMPLATES, type TaskTemplate } from '../../src/domain/task-templates';
-import { discoveryOfDay, shouldShowDiscovery } from '../../src/domain/discovery';
 import { scoreTask, undoCheckinByTaskDate } from '../../src/services/checkin';
 import { subscribeMaintenanceNotices } from '../../src/services/maintenance';
 import {
@@ -40,6 +35,9 @@ import {
   type TodayTaskView,
   type TodayTodoView,
 } from '../../src/services/today';
+import { getSettings } from '../../src/db/repo/settings';
+import { getHomePrefs } from '../../src/services/homePrefs';
+import type { HomePrefs } from '../../src/domain/homePrefs';
 import { useTheme } from '../../src/theme/ThemeProvider';
 
 /**
@@ -140,6 +138,13 @@ export default function TodayScreen() {
   const [lastGood, setLastGood] = useState<TodayData | null>(null);
   /** 读库失败且没有任何可显示的数据 */
   const [hardError, setHardError] = useState(false);
+  /** 每次重读数据 +1。传给日历，让它跟着重读（见 CalendarCard 的 refreshToken） */
+  const [dataNonce, setDataNonce] = useState(0);
+  /**
+   * 首页偏好（D62）。挂载时读一次，回到这一页时再读一次——
+   * 用户可能刚在设置页关掉了月历，切回来必须立刻生效。
+   */
+  const [prefs, setPrefs] = useState<HomePrefs>(getHomePrefs);
   /** 一行中性提示（算分被拒绝、记录没写进去等） */
   const [notice, setNotice] = useState<string | null>(null);
   /**
@@ -152,16 +157,18 @@ export default function TodayScreen() {
    */
   const noticeQueue = useRef<string[]>([]);
   /**
-   * 编辑态：每一行右侧出现「删」。
+   * 这一页读设置失败时（库没打开）的周起始日回退值。
    *
-   * 为什么要有编辑态，而不是一直显示删除按钮：这一页的主要动作是「记一笔」，
-   * 每行都挂一个红色的「删」，会让整页看起来像一张待清理的表。
-   * 进入编辑态需要一次明确的点击，删除也就不会误触。
-   *
-   * 离开这一页时自动退出编辑态（见 useFocusEffect 的清理函数）：
-   * 下次回来时页面应该是干净的，不该还停在「准备删除」的状态里。
+   * 月历要按周起始排表头（周一 / 周日开头）。读不到设置时就用周一——
+   * 与 `settings.week_starts_on` 的默认值一致，而不是在这一页写一个「1」。
    */
-  const [editing, setEditing] = useState(false);
+  const [weekStartsOn] = useState<number>(() => {
+    try {
+      return getSettings().week_starts_on;
+    } catch {
+      return 1;
+    }
+  });
   /**
    * 刚刚记下这一件得到的奖励。null 表示不显示。
    *
@@ -253,6 +260,7 @@ export default function TodayScreen() {
       setData(next);
       setLastGood(next);
       setHardError(false);
+      setDataNonce((n) => n + 1);
     } catch (err) {
       console.warn('[Ember] 读取今日数据失败', err);
       setHardError(true);
@@ -263,9 +271,8 @@ export default function TodayScreen() {
   useFocusEffect(
     useCallback(() => {
       refresh();
-      // 离开这一页时退出编辑态：回来时页面该是干净的，
-      // 不该还停在「每一行都挂着删」的状态里
-      return () => setEditing(false);
+      // 设置页可能刚改过首页偏好，回到这一页要重读
+      setPrefs(getHomePrefs());
     }, [refresh])
   );
 
@@ -295,36 +302,25 @@ export default function TodayScreen() {
   const habits = view?.habits ?? [];
   const todos = view?.todos ?? [];
 
-  /*
-   * 今日发现（阶段 4 第 7 条）。
-   *
-   * 在渲染期算：纯函数、代价可忽略（一次哈希）。
-   * 玩家 id 读不到时（库没打开）就不画那一块。
-   */
-  const discovery = useMemo(() => {
-    try {
-      return discoveryOfDay(getPlayerId(), today);
-    } catch (err) {
-      console.warn('[Ember] 取今日发现失败', err);
-      return null;
-    }
-  }, [today]);
-
   const doneCount = useMemo(
-    () => habits.filter((h) => h.done).length + todos.filter((t) => t.done).length,
-    [habits, todos]
+    () => habits.filter((h) => h.done).length,
+    [habits]
   );
-  const totalCount = habits.length + todos.length;
+  /*
+   * 进度只数**习惯**（D55）。
+   *
+   * 待办从这一版起没有完成态，也就不属于「今天做了几件」这个分子／分母。
+   * 早先两者一起数，是因为待办能勾选；现在把它数进来只会让火带
+   * 卡在 3/5 永远不动——而那个 5 里有一半是没法「做完」的。
+   */
+  const totalCount = habits.length;
   const allDone = totalCount > 0 && doneCount >= totalCount;
 
   // 全部完成时把问候换成一句收尾：不庆祝、不催促，只是告诉你今天到这儿了
   const headline = allDone ? '今天到这儿了。' : `${greeting}。`;
 
   /**
-   * 记录一次（习惯和待办共用）。
-   *
-   * 待办完成也要走算分——它一样发 XP（docs/04 §5.1 第 10 步），
-   * 只是写完顺带把任务置成完成。
+   * 记录一次。**只有习惯走这条路**——待办从 D55 起没有完成态、也不发 XP。
    */
   const handleRecord = useCallback(
     (taskId: string) => {
@@ -406,6 +402,10 @@ export default function TodayScreen() {
    * 先问一句：删除是这一页唯一不可撤销的动作（撤销打卡有入口，恢复任务没有）。
    * 文案不说「确定要删除吗」——那是在替用户犹豫；只说删了之后会发生什么：
    * 它不再出现在今天，但过去为它花的时间仍然算数。
+   *
+   * 这个函数现在是**两个入口共用的**：待办卡的左滑删除（D55 立、D65 改方向）与习惯行的
+   * 那个「删」（习惯行仍然只有一个显式按钮，因为「滑动」对它是新学的动作，
+   * 而习惯的主要动作是打卡，不是删）。
    */
   const handleDelete = useCallback(
     (taskId: string, title: string) => {
@@ -429,36 +429,7 @@ export default function TodayScreen() {
     [refresh, showNotice]
   );
 
-  /** 空状态里点一个快捷模板：直接建好，不用再填表 */
-  const handlePickTemplate = useCallback(
-    (template: TaskTemplate) => {
-      try {
-        createTask({
-          title: template.title,
-          type: template.type,
-          attribute: template.attribute,
-          startDate: today,
-        });
-        refresh();
-      } catch (err) {
-        console.warn('[Ember] 用模板新建任务失败', err);
-        showNotice('没能加进来，换个方式写写看。');
-        router.push('/tasks/new');
-      }
-    },
-    [refresh, router, showNotice, today]
-  );
-
   const goNewTask = useCallback(() => router.push('/tasks/new'), [router]);
-
-  /*
-   * D1–D7 引导（阶段 6 第 7 条）。
-   *
-   * 今天页负责第 1 / 2 / 4 / 6 / 7 天（分工见 components/useGuideCard.ts）。
-   * 卡放在页面**底部**，不在顶部：用户打开这一页是为了看今天要做什么，
-   * 引导卡排在内容之后，不看也能直接往下滑。
-   */
-  const guide = useGuideCard(GUIDE_HOST.today);
 
   return (
     <View style={{ flex: 1, backgroundColor: palette.background }}>
@@ -473,15 +444,16 @@ export default function TodayScreen() {
       }}
       showsVerticalScrollIndicator={false}
     >
+
       {/*
-       * 顶部：大标题 + 日期。
+       * 顶部：大标题 + 日期（D61 起回到这里）。
        *
-       * 顺序是**标题在上、日期在下**（Microsoft To Do 的排法：先「我的一天」，
-       * 再那行小字日期）。早先是反过来的——日期在上，像一个标签。
+       * D56 曾把这两行挪进一条彩色横带里，D61 把带子删了，
+       * 于是它们回到页面自己的顶部——这一版没有第二个「天」了。
        *
-       * 也去掉了日期上的字距（letterSpacing: 1.5）。拉开字距的小字标签
-       * 是「模板感」最明显的一处记号，而 To Do 的日期是普通的小字，
-       * 只是颜色淡一点。层级靠字号与颜色，不靠字距。
+       * 顺序是标题在上、日期在下（Microsoft To Do 的排法：先「我的一天」，
+       * 再那行小字日期）。日期不带字距：拉开字距的小字标签是「模板感」
+       * 最重的一处记号，层级靠字号与颜色，不靠字距。
        */}
       <View style={{ paddingHorizontal: theme.spacing.pageX }}>
         <Text
@@ -526,6 +498,13 @@ export default function TodayScreen() {
        * 它就从「一簇火」变成「半个圆」。为了 12px 的白边去毁掉全 App 唯一的
        * 品牌记号，不划算。火带就规规矩矩地待在卡片内边距里。
        */}
+      {/*
+       * 火带可以关掉（D62 的 home_prefs.showHearth）。默认显示。
+       *
+       * 关掉之后这一页就没有「今天做到哪儿」的读数了，但习惯列表本身的
+       * 完成态仍然在（圈是实心的）——所以关掉不等于看不见进度，只是没有那条带子。
+       */}
+      {prefs.showHearth ? (
       <Card
         style={{
           marginTop: theme.spacing.xl,
@@ -645,6 +624,12 @@ export default function TodayScreen() {
           </Text>
         ) : null}
       </Card>
+      ) : null}
+
+      {/* 月历（D57）。refreshToken 每读一次库就 +1：记完一笔日历跟着重读。可关（D62） */}
+      {prefs.showCalendar ? (
+        <CalendarCard today={today} weekStartsOn={weekStartsOn} refreshToken={dataNonce} />
+      ) : null}
 
       {/* 今天：标题 + 每条习惯一张白卡片 */}
       <View style={{ marginTop: theme.spacing.xl }}>
@@ -662,60 +647,38 @@ export default function TodayScreen() {
           </Text>
 
           {/*
-           * 「加一件」的显示条件是**今天有没有任何东西**，不是只有没有习惯。
+           * 页头右侧现在只剩一句操作提示，编辑态没有了。
            *
-           * 早先写的是 habits.length > 0，于是只建了待办、一件习惯都没有的人
-           * 会同时撞上两件事：拿不到「加一件」，又被下面的空状态当成「今天空着」
-           * ——而他的待办就列在下面。等于告诉用户他没建过东西，同时不给他改的机会。
+           * 为什么删掉「编辑」：它是一页的第二个模式——点进去之后整页看起来
+           * 都变了，而用户往往只是想删掉其中一件。删除改成左滑（D55 立、D65 改方向），
+           * 落在它自己那一行上。
            *
-           * 空状态和这个按钮用同一个条件，两者永远互斥：
-           * totalCount === 0 才叫空，那时候三个模板自己就是入口。
+           * 但滑动是隐藏手势，新用户不会自己发现（这正是 TaskRow 早先
+           * 拒绝用滑动删除的理由）。所以：第一次进这一页时，第一张待办卡会
+           * 自己轻推一下（SwipeToDelete 的 peek），这里是常备的一行小字——
+           * 它不占事件、不可点，只在有东西可删的时候出现。
            */}
-          {totalCount > 0 ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              {/*
-               * 编辑态开关。只在有内容时出现——一件都没有时，
-               * 「删」没有对象，这个开关只会让人点一下发现自己什么也做不了。
-               */}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={editing ? '完成编辑' : '编辑'}
-                onPress={() => setEditing((prev) => !prev)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                style={({ pressed }) => ({
-                  minHeight: theme.touchTarget,
-                  justifyContent: 'center',
-                  opacity: pressed ? 0.55 : 1,
-                })}
-              >
-                <Text
-                  style={{
-                    fontSize: theme.typography.size.caption,
-                    lineHeight: theme.typography.lineHeight.caption,
-                    // 编辑态用正文色，提醒「现在点行尾的删是真的会删」
-                    color: editing ? palette.text : palette.textMuted,
-                    fontFamily: theme.typography.fontFamily.body,
-                  }}
-                >
-                  {editing ? '完成' : '编辑'}
-                </Text>
-              </Pressable>
-
-              {/*
-               * 「加一件」原来在这里，现在移到了右下角的圆钮（AddButton）。
-               * 一个页面只留一个「添加」入口：这个入口在页头、那个在页尾，
-               * 用户会以为它们做的事不一样。
-               */}
-            </View>
+          {prefs.showSwipeHint && (todos.length > 0 || habits.length > 0) ? (
+            <Text
+              style={{
+                fontSize: theme.typography.size.caption,
+                lineHeight: theme.typography.lineHeight.caption,
+                color: palette.textMuted,
+                fontFamily: theme.typography.fontFamily.body,
+              }}
+            >
+              左滑可以删
+            </Text>
           ) : null}
         </View>
 
         {/*
-         * 空状态的条件同样是 totalCount === 0。
-         * 只看习惯的话，「今天有一个待办」会被渲染成「今天空着」——
+         * 空状态的条件是「习惯与待办都没有」。
+         *
+         * 只看习惯的话，「今天只有一个待办」会被渲染成「今天空着」——
          * 而下面紧接着就把那条待办列出来了，自相矛盾。
          */}
-        {totalCount === 0 ? (
+        {habits.length === 0 && todos.length === 0 ? (
           <View style={{ paddingHorizontal: theme.spacing.pageX }}>
             <Text
               style={{
@@ -726,47 +689,46 @@ export default function TodayScreen() {
                 fontFamily: theme.typography.fontFamily.body,
               }}
             >
-              今天空着。要不要放一件小事进来？
+              今天空着。点右下角的「+」放一件进来。
             </Text>
-            <QuickStart
-              templates={QUICK_HABIT_TEMPLATES}
-              onPick={handlePickTemplate}
-              onCreateOwn={goNewTask}
-            />
           </View>
         ) : habits.length === 0 ? (
-          // 有内容、但全是待办：习惯区块本身不画，只留一个「加一件」在上面
+          // 有内容、但全是待办：习惯区块本身不画
           null
         ) : (
           <View style={{ paddingHorizontal: theme.spacing.pageX }}>
-            {habits.map((habit, index) => (
-              <TaskRow
+            {habits.map((habit) => (
+              <SwipeToDelete
                 key={habit.id}
                 title={habit.title}
-                streakDays={habit.streakDays}
-                done={habit.done}
-                disabled={habit.done}
-                onPress={() => handleRecord(habit.id)}
-                onLongPress={habit.canUndo ? () => handleUndo(habit.id) : undefined}
-                onDelete={editing ? () => handleDelete(habit.id, habit.title) : undefined}
-                floatText={float?.taskId === habit.id ? float.text : undefined}
-                floatNonce={float?.taskId === habit.id ? float.nonce : 0}
-              />
+                marginBottom={theme.spacing.cardGap}
+                onDelete={() => handleDelete(habit.id, habit.title)}
+              >
+                <TaskRow
+                  title={habit.title}
+                  streakDays={habit.streakDays}
+                  done={habit.done}
+                  disabled={habit.done}
+                  onPress={() => handleRecord(habit.id)}
+                  onLongPress={habit.canUndo ? () => handleUndo(habit.id) : undefined}
+                  floatText={float?.taskId === habit.id ? float.text : undefined}
+                  floatNonce={float?.taskId === habit.id ? float.nonce : 0}
+                />
+              </SwipeToDelete>
             ))}
           </View>
         )}
       </View>
 
       {/*
-       * 待办：最多 3 条，每条一张白卡片。
+       * 待办：最多 3 条，每条一张白卡片，左滑露出「删」（D55 立、D65 改方向）。
        *
-       * 习惯与待办用的是同一种框（`components/Card`）——要求是
-       * 「每一个任务都要框起来」，两类任务在这一点上没有区别。
-       * 它们仍然靠**圈里画什么**区分：习惯是圆形勾选圈，待办也是，
-       * 但待办多一行元信息（截止日 · 备注 · 归属目标），完成时加删除线。
+       * 这一块与习惯的区别现在只剩两条：多一行元信息（截止日 · 备注 · 目标）、
+       * 以及**不可勾选**——待办是便签，不是更小的习惯。
        *
-       * 卡片之间留 8px 的缝，缝里露出页面底色。这是 Fluent 分组的方式：
-       * 不靠描边把卡片框起来，靠「白纸压在灰底上」自己分开。
+       * 删除必须走 SwipeToDelete 而不是在卡片里放一个按钮：卡片上常驻一个
+       * 红色的「删」，整页会读成一张待清理的表。滑动是「手指推开门」，
+       * 主动作（看清单）时不占视觉。
        */}
       {todos.length > 0 ? (
         <View
@@ -787,129 +749,40 @@ export default function TodayScreen() {
           >
             待办
           </Text>
-          {todos.map((todo, index) => (
-            <TodoCard
+          {todos.map((todo) => (
+            <SwipeToDelete
               key={todo.id}
               title={todo.title}
-              dueLabel={todo.dueLabel}
-              overdue={todo.overdue}
-              notes={todo.notes}
-              goalTitle={todo.goalTitle}
-              done={todo.done}
-              onToggle={() => handleRecord(todo.id)}
-              onLongPress={todo.canUndo ? () => handleUndo(todo.id) : undefined}
-              onDelete={editing ? () => handleDelete(todo.id, todo.title) : undefined}
-              last={index === todos.length - 1}
-              floatText={float?.taskId === todo.id ? float.text : undefined}
-              floatNonce={float?.taskId === todo.id ? float.nonce : 0}
-            />
+              /* peek 只给第一张：一次就够，第二张再推一遍就是噪音 */
+              peek={todo.id === todos[0].id}
+              marginBottom={theme.spacing.cardGap}
+              onDelete={() => handleDelete(todo.id, todo.title)}
+            >
+              <TodoCard
+                title={todo.title}
+                dueLabel={todo.dueLabel}
+                overdue={todo.overdue}
+                notes={todo.notes}
+                goalTitle={todo.goalTitle}
+              />
+            </SwipeToDelete>
           ))}
         </View>
       ) : null}
 
-      {/*
-       * 今天还可以：一条 1 分钟微行动。
-       *
-       * 它也是数据（每天换一句、由玩家 id 和日期定种），所以同样一张卡。
-       * 只是这一张不给「可点」的样子：它没有 onLongPress、没有圈，
-       * 卡片在这里只是「一条读数」，不是「一个任务」。
-       */}
-      {view?.microAction ? (
-        <Card style={{ marginTop: theme.spacing.xxl, marginHorizontal: theme.spacing.pageX }}>
-          <Text
-            style={{
-              fontSize: theme.typography.size.caption,
-              lineHeight: theme.typography.lineHeight.caption,
-              fontWeight: theme.typography.weight.semibold,
-              color: palette.textMuted,
-              fontFamily: theme.typography.fontFamily.body,
-            }}
-          >
-            今天还可以
-          </Text>
-          <Text
-            style={{
-              marginTop: theme.spacing.xs,
-              fontSize: theme.typography.size.body,
-              lineHeight: theme.typography.lineHeight.body,
-              color: palette.text,
-              fontFamily: theme.typography.fontFamily.body,
-            }}
-          >
-            {view.microAction}
-          </Text>
-        </Card>
-      ) : null}
-
-      {/*
-       * 今日发现（阶段 4 第 7 条）。
-       *
-       * 只在**今天至少记过一件**之后出现。
-       *
-       * 为什么不在打开 App 时就给：那会让它变成「每天的问候语」，
-       * 而这一条的价值在于「你做完了一件事，顺手看一眼」。顺序反了，
-       * 它就从「发现的奖励」变成了「开场白」。
-       *
-       * 它不给 XP / 余烬 / 材料——纯文字，所以也不存在「刷」的动机。
-       * 种子是「玩家 id + 业务日」，同一天永远同一条（改系统时间也刷不出新的，
-       * 因为 effectiveToday 挡住时钟回拨）。
-       */}
-      {discovery && view && shouldShowDiscovery(doneCount > 0) ? (
-        <Card style={{ marginTop: theme.spacing.cardGap, marginHorizontal: theme.spacing.pageX }}>
-          <Text
-            style={{
-              fontSize: theme.typography.size.caption,
-              lineHeight: theme.typography.lineHeight.caption,
-              fontWeight: theme.typography.weight.semibold,
-              color: palette.textMuted,
-              fontFamily: theme.typography.fontFamily.body,
-            }}
-          >
-            今天发现
-          </Text>
-          <Text
-            style={{
-              marginTop: theme.spacing.xs,
-              fontSize: theme.typography.size.body,
-              lineHeight: theme.typography.lineHeight.body,
-              color: palette.text,
-              fontFamily: theme.typography.fontFamily.body,
-            }}
-          >
-            {discovery.text}
-          </Text>
-        </Card>
-      ) : null}
-      {/*
-       * D1–D7 引导卡。排在所有内容之后。
-       *
-       * 为什么不在最上面：这一页的主体是「今天要做什么」，
-       * 而引导卡说的是「这个 App 还能怎么用」。把后者放前面，
-       * 等于每天先给用户读一句说明再去记事情。
-       */}
-      {guide.card ? (
-        <View style={{ paddingHorizontal: theme.spacing.pageX }}>
-          <GuideCardView
-            card={guide.card}
-            onAction={guide.runAction}
-            onDismiss={guide.dismiss}
-          />
-        </View>
-      ) : null}
     </ScrollView>
 
     {/*
      * 右下角的「+」。
      *
-     * 只在非编辑态出现：编辑态这一屏是「清理」，不是「添加」——
-     * 两个相反的动作出现在同一屏，手指会犹豫。
+     * 这一页只有一个「添加」入口，而且它一直在（没有编辑态了，D55）。
      *
      * **不需要给底栏留偏移**：expo-router 的底栏在正常流里
      * （BottomTabBar 不是绝对定位），所以这一页的内容区本来就结束在底栏之上。
      * 早先这里加了 `insets.bottom + 62`，那会把按钮往上顶 80 多像素，
      * 悬在列表中间。组件自己的 `spacing.lg` 就是它该有的下边距。
      */}
-    {editing ? null : <AddButton onPress={goNewTask} />}
+    <AddButton onPress={goNewTask} />
     </View>
   );
 }

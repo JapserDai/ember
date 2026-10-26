@@ -76,7 +76,7 @@ export function checkinSeed(
  * 以后「多抽一次文案」就会让动画结果全变——历史截图和实际表现对不上。
  * 给每个用途加后缀再哈希，两条流从此互不影响。
  *
- * 常用 stream 名：'flavor'（文案）、'anim'（动画）、'cover'（回忆卡封面）。
+ * 常用 stream 名：'flavor'（文案）、'anim'（动画）、'cover'（复盘卡封面）。
  */
 export function seedStream(baseSeed: string, stream: string): () => number {
   return mulberry32(fnv1a32(`${baseSeed}|${stream}`));
