@@ -25,8 +25,6 @@ on:
     paths:
       - 'site/**'
       - '.github/workflows/pages.yml'
-  # 允许在 Actions 页面手动跑一次（改了 Pages 设置之后常用）
-  workflow_dispatch:
 
 # Pages 需要的权限。除此之外一律不给
 permissions:
