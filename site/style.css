@@ -663,6 +663,25 @@ h1 {
   gap: 1rem;
 }
 
+/*
+ * 子元素显式定位到第二列。
+ *
+ * 不写的话 grid 会把 li 的每个子元素**自动依次放置**：
+ * ::before 占 (1,1)，h3 占 (1,2)，然后 p 被排到第二行的第一列——
+ * 那一格只有 2rem 宽，正文就在里面一行两三个字地竖着排。
+ * 这不是理论风险，它真的渲染成那样了。
+ */
+.steps li::before {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.steps h3,
+.steps p,
+.steps .checksum {
+  grid-column: 2;
+}
+
 .steps li::before {
   content: counter(step);
   font-family: var(--serif);
