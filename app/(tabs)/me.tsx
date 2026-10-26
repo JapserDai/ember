@@ -4,16 +4,12 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Card } from '../../src/components/Card';
+import { GuideCardView } from '../../src/components/GuideCardView';
+import { useGuideCard, GUIDE_HOST } from '../../src/components/useGuideCard';
 import { PlayerAvatar } from '../../src/components/PlayerAvatar';
 import { StreakRepairCard } from '../../src/components/StreakRepairCard';
 import { getPlayerSnapshot, type PlayerSnapshot } from '../../src/db/repo/player';
-import {
-  ATTRIBUTE_KEYS,
-  ATTRIBUTE_LABEL,
-  ATTR_POINTS_MAX,
-  XP_TABLE,
-  type AttributeKey,
-} from '../../src/domain/balance';
+import { ATTRIBUTE_KEYS, ATTRIBUTE_LABEL, XP_TABLE, type AttributeKey } from '../../src/domain/balance';
 import { DEFAULT_AVATAR_ID } from '../../src/domain/avatar';
 import { highestTitles, nextTitles } from '../../src/domain/titles';
 import type { StreakSummary } from '../../src/domain/streak';
@@ -82,6 +78,10 @@ const FALLBACK_PLAYER: PlayerSnapshot = {
   material: 0,
   refinedMaterial: 0,
   lastEventRewardMonth: null,
+  // 兑底快照的起算日为空：这一份只在读库失败时用，
+  // 而引导卡的显示本来就要先读库（getGuideState 自己会兜住），
+  // 不需要这份兑底快照去参与。
+  guideStartDate: null,
   onboardingDone: false,
   avatarId: DEFAULT_AVATAR_ID,
   createdAt: 0,
@@ -274,30 +274,12 @@ function TitleSummary({ onOpen }: { onOpen: () => void }) {
   );
 }
 
-/** 一条横条：底槽 + 一段填充。经验条和五维条共用 */
-function Meter({ progress }: { progress: number }) {
-  const { theme, palette } = useTheme();
-  return (
-    <View
-      style={{
-        marginTop: theme.spacing.sm,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: palette.border,
-        overflow: 'hidden',
-      }}
-    >
-      <View
-        style={{
-          width: `${Math.min(1, Math.max(0, progress)) * 100}%`,
-          height: '100%',
-          borderRadius: 2,
-          backgroundColor: palette.primary,
-        }}
-      />
-    </View>
-  );
-}
+/*
+ * 原来这里有一个 `Meter`（一条横条，经验条与五维条共用）。
+ * D48 把经验条与五维都搬去了「状态」页，这一页不再画任何进度条，
+ * 于是它成了死代码——死代码比缺代码更难维护，删掉。
+ * 同样的形状现在在 `app/(tabs)/status.tsx` 的 `Meter` 里。
+ */
 
 export default function MeScreen() {
   const { theme, palette } = useTheme();
@@ -306,6 +288,14 @@ export default function MeScreen() {
 
   const [player, setPlayer] = useState<PlayerSnapshot>(loadPlayer);
   const [streak, setStreak] = useState<StreakSummary>(loadStreak);
+
+  /**
+   * D1–D7 引导。我的页只负责第 5 天（「这些是你走到今天的样子」）。
+   *
+   * 它必须排在这一页所有读数之后：那句话说的是「这些」，
+   * 而「这些」就是上面那些卡片。放在最上面就变成了没有指代对象的一句话。
+   */
+  const guide = useGuideCard(GUIDE_HOST.me);
 
   /**
    * 每次回到这一页重新读一次。
@@ -319,9 +309,9 @@ export default function MeScreen() {
     }, [])
   );
 
-  // 升到下一级需要多少 XP。满级时 XP_TABLE[50] = 0，这里避开除以 0
+  // 升到下一级需要多少 XP（D48 起这一页不画经验条，但「状态」页的入口
+  // 文案里要提一句「还差多少」，所以这个数仍留在这里算）。
   const xpForNext = player.level < XP_TABLE.length ? XP_TABLE[player.level] : 0;
-  const xpProgress = xpForNext > 0 ? Math.min(1, player.xpInLevel / xpForNext) : 1;
 
   /*
    * 称号先不做。
@@ -438,33 +428,16 @@ export default function MeScreen() {
           <StatTile label="余烬" value={String(player.ember)} />
         </View>
 
-        {/* 经验条 */}
-        <Card style={{ marginTop: theme.spacing.cardGap }}>
-          <View style={styles.row}>
-            <Text
-              style={{
-                fontSize: theme.typography.size.caption,
-                lineHeight: theme.typography.lineHeight.caption,
-                color: palette.textMuted,
-                fontFamily: theme.typography.fontFamily.body,
-              }}
-            >
-              经验
-            </Text>
-            <Text
-              style={{
-                fontSize: theme.typography.size.caption,
-                lineHeight: theme.typography.lineHeight.caption,
-                color: palette.textMuted,
-                fontFamily: theme.typography.fontFamily.body,
-                fontVariant: ['tabular-nums'],
-              }}
-            >
-              {player.xpInLevel} / {xpForNext || '满级'}
-            </Text>
-          </View>
-          <Meter progress={xpProgress} />
-        </Card>
+        {/*
+         * 经验条（D48 起不在这里画）。
+         *
+         * 它搬到了「状态」页的顶部大卡：那一页才是回答「我走到哪儿了」的地方，
+         * 而这一页回答的是「我是谁、我有什么」。两页都画一条经验条，
+         * 只会让人分不清哪一条是权威。
+         *
+         * 这一页保留 `Lv.N` 那一个读数（见上面的 StatTile）：
+         * 它是一个身份数字，与名字、头像同类，不像进度条那样要求「填满」。
+         */}
 
         {/*
          * 连胜。整体口径：不分是哪个习惯，这一天有记录就算。
@@ -638,77 +611,115 @@ export default function MeScreen() {
         </Card>
       </View>
 
-      {/* 五维。纯展示，不给建议、不做评分 */}
-      <View
-        style={{
-          marginTop: theme.spacing.xl,
-          paddingHorizontal: theme.spacing.pageX,
-        }}
-      >
-        {/*
-         * 这五个字是必要的：五张一模一样的小卡摆在一起，需要有句话说清
-         * 「这五个是同一套东西的五个刻度」。它不重复任何一张卡上的字。
-         */}
-        <Text
-          style={{
-            marginBottom: theme.spacing.sm,
-            fontSize: theme.typography.size.label,
-            lineHeight: theme.typography.lineHeight.label,
-            fontWeight: theme.typography.weight.medium,
-            color: palette.textMuted,
-            fontFamily: theme.typography.fontFamily.body,
-          }}
-        >
-          五维
-        </Text>
-
-        {/* 顺序固定为 ATTRIBUTE_KEYS，不按数值排——排序会让它读起来像排行榜 */}
-        {ATTRIBUTE_KEYS.map((key) => {
-          const points = player.attributes[key].points;
-          return (
-            <Card key={key} style={{ marginBottom: theme.spacing.cardGap }}>
-              <View style={styles.row}>
-                <Text
-                  style={{
-                    fontSize: theme.typography.size.body,
-                    lineHeight: theme.typography.lineHeight.body,
-                    color: palette.text,
-                    fontFamily: theme.typography.fontFamily.body,
-                  }}
-                >
-                  {ATTRIBUTE_LABEL[key]}
-                </Text>
-                <Text
-                  style={{
-                    fontSize: theme.typography.size.caption,
-                    lineHeight: theme.typography.lineHeight.caption,
-                    color: palette.textMuted,
-                    fontFamily: theme.typography.fontFamily.body,
-                    fontVariant: ['tabular-nums'],
-                  }}
-                >
-                  {points}
-                </Text>
-              </View>
-              {/* 条的宽度按「点数 / 上限」，一眼看出哪一维走得远 */}
-              <Meter progress={points / ATTR_POINTS_MAX} />
-            </Card>
-          );
-        })}
-
-        {/* 说明文字不是数据点，不框——框住它会让它看起来像第六条五维 */}
-        <Text
-          style={{
-            marginTop: theme.spacing.xs,
-            fontSize: theme.typography.size.caption,
-            lineHeight: theme.typography.lineHeight.body,
-            color: palette.textMuted,
-            fontFamily: theme.typography.fontFamily.body,
-          }}
-        >
-          每 200 点属性经验换 1 点。它不影响任何数值，只记录你把时间花在哪儿了。
-        </Text>
+      {/*
+       * 目标入口（D48）。
+       *
+       * 目标原来是底栏的一个 tab，现在被「状态」顶掉了。它没有被删掉，
+       * 只是变成了二级页——写目标的频率本来就不是每天，放在这里足够。
+       *
+       * 文案是「走得久一点的事」，不是「目标管理」：后者是一个功能名，
+       * 前者是用户在那一页会看到的第一句话（`app/goals/index.tsx` 的副标题）。
+       */}
+      <View style={{ marginTop: theme.spacing.cardGap, paddingHorizontal: theme.spacing.pageX }}>
+        <Card padding={0}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="目标，走得久一点的事"
+            onPress={() => router.push('/goals')}
+            style={({ pressed }) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              minHeight: 52,
+              paddingHorizontal: theme.spacing.cardPadding,
+              opacity: pressed ? 0.55 : 1,
+            })}
+          >
+            <Text
+              style={{
+                fontSize: theme.typography.size.body,
+                lineHeight: theme.typography.lineHeight.body,
+                color: palette.text,
+                fontFamily: theme.typography.fontFamily.body,
+              }}
+            >
+              目标
+            </Text>
+            <Text
+              style={{
+                fontSize: theme.typography.size.caption,
+                lineHeight: theme.typography.lineHeight.caption,
+                color: palette.textMuted,
+                fontFamily: theme.typography.fontFamily.body,
+              }}
+            >
+              走得久一点的事
+            </Text>
+          </Pressable>
+        </Card>
       </View>
+
+      {/*
+       * 五维（D48 起不在这里画，搬到了「状态」页）。
+       *
+       * 原来这一页有五张一模一样的小卡，加上等级、经验、余烬、连胜、称号，
+       * 一页里塞了七种东西。用户要求「照抄人升的状态页」正好给了一次分工的机会：
+       *   - 状态页：人生等级 + 属性条 + 称号 ——「我走到了哪里」；
+       *   - 我的页：头像 + 名字 + Lv + 余烬 + 连胜 + 入口 ——「我是谁、我有什么」。
+       *
+       * 数据一个字段都没改，五维仍然由打卡写入（services/checkin.ts）。
+       * 这里只留一个指向状态页的入口，因为它就是「看完这一页之后最自然的下一步」。
+       */}
+      <View style={{ marginTop: theme.spacing.cardGap, paddingHorizontal: theme.spacing.pageX }}>
+        <Card padding={0}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="状态，看看等级和属性"
+            onPress={() => router.push('/status')}
+            style={({ pressed }) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              minHeight: 52,
+              paddingHorizontal: theme.spacing.cardPadding,
+              opacity: pressed ? 0.55 : 1,
+            })}
+          >
+            <Text
+              style={{
+                fontSize: theme.typography.size.body,
+                lineHeight: theme.typography.lineHeight.body,
+                color: palette.text,
+                fontFamily: theme.typography.fontFamily.body,
+              }}
+            >
+              状态
+            </Text>
+            <Text
+              style={{
+                fontSize: theme.typography.size.caption,
+                lineHeight: theme.typography.lineHeight.caption,
+                color: palette.textMuted,
+                fontFamily: theme.typography.fontFamily.body,
+                fontVariant: ['tabular-nums'],
+              }}
+            >
+              {xpForNext > 0 ? `还差 ${xpForNext - player.xpInLevel} 到 Lv.${player.level + 1}` : '满级'}
+            </Text>
+          </Pressable>
+        </Card>
+      </View>
+
+      {/* D1–D7 引导卡（本页负责第 5 天：「这些是你走到今天的样子」） */}
+      {guide.card ? (
+        <View style={{ paddingHorizontal: theme.spacing.pageX }}>
+          <GuideCardView
+            card={guide.card}
+            onAction={guide.runAction}
+            onDismiss={guide.dismiss}
+          />
+        </View>
+      ) : null}
     </ScrollView>
   );
 }

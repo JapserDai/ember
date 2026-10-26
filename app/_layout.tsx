@@ -1,19 +1,17 @@
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { AppState, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { initDatabase } from '../src/db/client';
 import { getPlayerSnapshot } from '../src/db/repo/player';
 import { getSettings } from '../src/db/repo/settings';
+import { runDailyMaintenance } from '../src/services/maintenance';
 import {
   installNotificationHandler,
   maintainRemindersOnLaunch,
 } from '../src/services/reminders';
-import { settleUpTo } from '../src/services/settle';
-import { applyGraceIfNeeded } from '../src/services/streak';
-import { grantMonthlyEventReward } from '../src/services/narrative';
 import { ThemeProvider, useTheme } from '../src/theme/ThemeProvider';
 
 /**
@@ -25,6 +23,7 @@ import { ThemeProvider, useTheme } from '../src/theme/ThemeProvider';
  *   3. 首次启动写种子：player 1 行 + settings 1 行（src/db/seed.ts 的 seedIfEmpty）
  *      以上三步都封装在 initDatabase() 里，一次调用即可。
  *   4. 惰性日结算：把 last_settled_date 推到今天（src/services/settle.ts）
+ *   4.5 宽限券 + 4.6 月度奖励：与结算同属「日常维护」（src/services/maintenance.ts）
  *   5. 读 settings，拿到 reduce_motion
  *   6. 渲染界面
  *
@@ -40,16 +39,21 @@ import { ThemeProvider, useTheme } from '../src/theme/ThemeProvider';
  *
  * ---- 通知在启动流程之外 ----
  *
- * 通知的 handler 与排期都是**异步**的，而上面 1–5 步全部同步、且必须在首帧之前完成。
- * 把它们混在一起会让首帧等一个网络……不，等一个系统调用；而通知晚几十毫秒排上，
- * 用户完全感知不到。所以：
- *   - `installNotificationHandler()` 是纯注册，同步，放在 bootstrap 里；
- *   - `maintainRemindersOnLaunch()` 是异步的，放在挂载后的 useEffect 里，
- *     不 await、失败只打日志（见 services/reminders.ts 的注释）。
+ * 通知的 handler 与排期都**不进启动流程**：上面 1–5 步全部同步、且必须在首帧之前完成，
+ * 而通知模块在 Expo Go 里「一 import 就炸」（#52175，见 services/reminders.ts）。所以：
+ *   - `installNotificationHandler()` 与 `maintainRemindersOnLaunch()` 都放在挂载后的
+ *     useEffect 里，不 await、失败只打日志——首帧路径上没有任何一行碰通知模块；
  *
- * 结算的结论（比如「昨天空了一天」）在这里**不显示**：根布局没有界面，
- * 而这句话该出现在首页。这一版先只写库与日志，等首页决定怎么展示时再接
- * （`settleUpTo()` 已经把 message 返回出来了）。
+ * 结算的结论（比如「昨天空了一天」）**不在这里显示**：根布局没有界面，
+ * 而这句话该出现在首页。三件事的话现在由 `services/maintenance.ts` 排队，
+ * 首页挂载后通过 `subscribeMaintenanceNotices()` 取走并逐条说完。
+ *
+ * ---- 切回前台也要跑一遍 ----
+ *
+ * 冷启动才有维护的话，隔夜把 App 切到后台再切回来（进程没被杀）时
+ * `last_settled_date` 还停在昨天，撤销保护会放行昨天的记录。
+ * 所以 `ThemedRoot` 里还挂了一个 `AppState` 监听：一回到 `active`
+ * 就跑一次维护（同一条路，不是另一份逻辑）。
  */
 
 /** 启动阶段读到的设置。任何一步出错都回退到默认值，保证界面能出来 */
@@ -66,32 +70,8 @@ function bootstrap(): BootState {
     // 1–3. 打开连接 → 迁移 → 首次种子
     initDatabase();
 
-    // 4. 惰性日结算。只推进 last_settled_date，不惩罚、不扣分（见 domain/settle.ts）
-    settleUpTo();
-
-    /*
-     * 4.5 惰性补宽限券（D38）。
-     *
-     * 必须在结算**之后**：结算先把 last_settled_date 推到今天，
-     * 而 applyGraceIfNeeded 要用「今天」去反推「昨天」。
-     * 反过来的话，跨日打开时昨天会被算错一天。
-     *
-     * 它自己包了 try/catch，失败不影响启动。
-     * 结果（是否用掉一张券）这里**不显示**：根布局没有界面，
-     * 那句话该出现在首页（与结算的 message 同一个处理方式）。
-     */
-    applyGraceIfNeeded();
-
-    /*
-     * 4.6 月度活动奖励（阶段 5 第 1 条）。
-     *
-     * 发的是**上个月**的：这个月还没过完，不该提前发。
-     * 只在这个月有记录时发，而「发过没有」记在
-     * `player.last_event_reward_month` 里（否则每次启动都会发一遍）。
-     *
-     * 与结算、宽限券同一个时机：那是我们唯一确定「用户现在打开了 App」的时刻。
-     */
-    grantMonthlyEventReward();
+    // 4. 日常维护：结算 → 宽限券 → 月度奖励。顺序不能变，理由见 services/maintenance.ts
+    runDailyMaintenance();
 
     // 5. 读设置。种子保证这一行存在。
     //    放在结算之后读：结算会改写 settings 的行
@@ -111,20 +91,25 @@ function bootstrap(): BootState {
     }
 
     /*
-     * 注册前台通知行为。放在 try 里：注册本身不会抛错，
-     * 但它在某些机型上会触发一次渠道查询——与数据库无关的失败不该让 App 打不开。
+     * 注册前台通知行为——**不在 bootstrap 里做了**（2026-10-26）。
+     *
+     * 原来在这里同步调 installNotificationHandler()，但 Expo Go 的原生模块
+     * 白名单 bug（#52175）让这一步在首帧前就碰通知模块——即使 requireNotifications
+     * 能接住，LogBox 也会把错误记在启动路径上，观感是「启动就报错」。
+     * 注册 handler 只是给「App 在前台时通知到达怎么显示」定规矩，
+     * 晚几百毫秒毫无区别——挪到 ThemedRoot 挂载后的 useEffect 里。
      */
-    try {
-      installNotificationHandler();
-    } catch (err) {
-      console.warn('[Ember] 注册通知行为失败', err);
-    }
 
-    // TODO: 时区变更检测 —— 与 settings.last_time_zone 不同则重算业务日边界，
-    //       结算完成后调 updateLastTimeZone() 记下新时区。
-    //       现在不急：业务日完全由 day_start_hour + 本地时间算出，
-    //       时区变了本地时间自然就变了，不需要单独一步去「重算」。
-    //       真正要用时区的是通知排期（阶段 2 的通知部分）。
+    /*
+     * 时区变更不需要单独一步。
+     *
+     * 早先这里挂了一个 TODO，怕「时区变了业务日边界没重算」。核实过：
+     * 业务日完全由 `day_start_hour` + 本地时间算出（domain/date.ts），
+     * 时区一变本地时间自然就变了，没有任何缓存需要推翻。
+     * 真正需要知道时区的是通知排期，那边已经用 `settings.last_time_zone`
+     * 自己处理了（services/reminders.ts 的 maintainRemindersOnLaunch）：
+     * 时区不同就整体重排。所以这条 TODO 是上一版的残留，删掉比留着诚实。
+     */
 
     return {
       reduceMotion: settings.reduce_motion === 1,
@@ -191,6 +176,43 @@ function ThemedRoot({ onboardingDone }: { onboardingDone: boolean }) {
    */
   React.useEffect(() => {
     void maintainRemindersOnLaunch();
+  }, []);
+
+  /*
+   * 注册前台通知行为（原在 bootstrap 里同步调，见 bootstrap 里的注释）。
+   * 挂载后注册：通知什么时候到都来得及定规矩，不该让它在首帧前碰通知模块。
+   */
+  React.useEffect(() => {
+    try {
+      installNotificationHandler();
+    } catch (err) {
+      console.warn('[Ember] 注册通知行为失败', err);
+    }
+  }, []);
+
+  /*
+   * 从后台回到前台：补一次日常维护。
+   *
+   * 为什么必须做：`last_settled_date` 的推进只有一个机会窗口——
+   * 「我们现在知道用户打开了 App」。冷启动有这一次，但隔夜切后台再切回来
+   * 进程没被杀时不会重建根布局，于是结算停在昨天，撤销保护会放行昨天的记录。
+   *
+   * 只认 `active`：`background` / `inactive` 那一刻用户还没回来，
+   * 那时跑维护只会白白唤醒数据库。
+   *
+   * 不 await、失败只打日志：维护里三件事各自已经兜住异常，
+   * 而它与首帧无关，慢一点也不该拦住任何界面。
+   */
+  React.useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      try {
+        runDailyMaintenance();
+      } catch (err) {
+        console.warn('[Ember] 回到前台时的日常维护失败', err);
+      }
+    });
+    return () => sub.remove();
   }, []);
 
   /*

@@ -1,0 +1,65 @@
+# 把 site/ 发布到 GitHub Pages。
+#
+# ---- 为什么用 Actions 而不是「Settings → Pages 选 /docs」----
+#
+# Pages 的「Deploy from a branch」只允许从仓库根目录或 /docs 发布，
+# **不能选 /site**。两条路：
+#   A. 把目录改名成 docs/；
+#   B. 用它自己的发布流程（就是这个文件）。
+#
+# 选 B 的理由：`docs/` 在这个仓库里已经有主了——那是六册产品文档
+# （docs/00-索引与阅读顺序.md 等），而它们是仓库的阅读起点。
+# 把落地页塞进 docs/ 会让「文档」和「线上站点」变成同一个目录，
+# 改文档时容易误碰站点。
+#
+# ---- 这个工作流做什么 ----
+#
+# 只在 site/ 里真的变了时触发，把整个 site/ 作为 artifact 上传。
+# 没有构建步骤：那个目录就是站点本身。
+name: 发布落地页
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yml'
+  # 允许在 Actions 页面手动跑一次（改了 Pages 设置之后常用）
+  workflow_dispatch:
+
+# Pages 需要的权限。除此之外一律不给
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同时只跑一个发布。不取消进行中的那一个：
+# 发布被中途打断会留下一个半成品站点
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 配置 Pages
+        uses: actions/configure-pages@v5
+
+      - name: 上传 site/ 作为站点
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 发布
+        id: deployment
+        uses: actions/deploy-pages@v4

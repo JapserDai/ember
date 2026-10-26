@@ -35,8 +35,19 @@
  * 通知不是关键路径。没有权限、机型不支持、系统限流——任何一种都只该
  * 让设置页显示「提醒没能排上」，不该让 App 打不开。所以这里的公开函数
  * 全部返回结果对象。
+ *
+ * **expo-notifications 必须懒加载**（2026-10-26）：Expo Go 的原生模块白名单
+ * 里漏注册了 ExpoTopicSubscriptionModule（expo 官方 issue #52175，仍 open），
+ * 而它的 JS 在包 index.js 的模块求值阶段就 require 它——任何一条
+ * `import ... from 'expo-notifications'` 都会让启动直接炸掉（表现是白屏 +
+ * 连锁的 ErrorBoundary 报错）。所以顶层不 import，改成 `requireNotifications()`
+ * 在每个公开函数内部取模块；模块缺失时返回 null，调用方各自降级。
+ * 真机 apk / development build（原生模块完整）不受影响。
  */
-import * as Notifications from 'expo-notifications';
+
+import Constants, { ExecutionEnvironment } from 'expo-constants';
+import { isRunningInExpoGo } from 'expo';
+
 import { Platform } from 'react-native';
 
 import { listActiveCheckinDates } from '../db/repo/checkins';
@@ -62,6 +73,54 @@ import {
   reminderSeed,
   type ReminderOccurrence,
 } from '../domain/reminder';
+
+type NotificationsModule = typeof import('expo-notifications');
+
+let notificationsCache: NotificationsModule | null | undefined;
+
+/**
+ * 取 expo-notifications 模块。Expo Go 里原生模块没注册时返回 null——
+ * 这不是错误，是「这台环境发不了通知」。
+ */
+function requireNotifications(): NotificationsModule | null {
+  if (notificationsCache !== undefined) return notificationsCache;
+
+  /*
+   * Expo Go 里直接放弃，**连 require 都不做**（2026-10-26）。
+   *
+   * 只靠 try/catch 不够：原生模块缺失时，expo-notifications 的 JS 在模块
+   * 求值阶段 require 它失败，这个错误即使被 catch，RN 的开发工具也会把它
+   * 当作启动错误报到 LogBox 上（红色 ERROR），观感是「App 坏了」。
+   * Expo Go 的 Android 版从 SDK 53 起本来就不支持远程推送，本地提醒
+   * （本项目的唯一用途）也因 #52175 起不来——索性在 Expo Go 里整体停用，
+   * 一个字节的通知模块都不加载。真机 apk / development build 不受影响。
+   *
+   * 检测用两道信号（2026-10-26 第二次加固）：
+   *   - `isRunningInExpoGo()`：expo 包自带的官方判断（探测原生 ExpoGo 模块，
+   *     try/catch 包着，不碰通知模块）——**主信号**；
+   *   - `Constants.executionEnvironment === 'storeClient'`：老写法，
+   *     在部分 Go 版本上 native 常量注入不全时会落空（2026-10-26 实测），留作备艧。
+   */
+  if (isRunningInExpoGo() || Constants.executionEnvironment === ExecutionEnvironment.StoreClient) {
+    notificationsCache = null;
+    return null;
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- 只能 require：静态 import 会在模块求值期炸掉 Expo Go（见文件头注释）
+    notificationsCache = require('expo-notifications') as NotificationsModule;
+  } catch (err) {
+    // 只传字符串，不传 Error 对象：LogBox 会把 warn(err) 升级成红色 ERROR 显示，
+    // 让人以为启动失败了——实际只是提醒功能在这台环境里停用（2026-10-26）
+    console.warn(
+      '[Ember] 通知模块在这台设备上不可用（Expo Go 的已知限制），提醒功能停用：',
+      err instanceof Error ? err.message : String(err)
+    );
+    notificationsCache = null;
+  }
+  return notificationsCache;
+}
+
 /**
  * 预排的天数（含今天）。
  *
@@ -134,6 +193,8 @@ export type ReminderPermission = 'granted' | 'denied' | 'undetermined';
  * 而一个会响的习惯 App 在第三天就会被静音。
  */
 export function installNotificationHandler(): void {
+  const Notifications = requireNotifications();
+  if (!Notifications) return;
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
       shouldShowBanner: false,
@@ -161,6 +222,8 @@ export function installNotificationHandler(): void {
  */
 export async function ensureChannel(): Promise<void> {
   if (Platform.OS !== 'android') return;
+  const Notifications = requireNotifications();
+  if (!Notifications) return;
   try {
     await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
       name: '提醒',
@@ -182,6 +245,8 @@ export async function ensureChannel(): Promise<void> {
  * 那时候不该弹系统对话框——用户只是来看一眼的。
  */
 export async function getPermission(): Promise<ReminderPermission> {
+  const Notifications = requireNotifications();
+  if (!Notifications) return 'undetermined';
   try {
     const status = await Notifications.getPermissionsAsync();
     if (status.granted) return 'granted';
@@ -201,6 +266,8 @@ export async function getPermission(): Promise<ReminderPermission> {
  * 所以这个函数只在「设置 → 提醒」里、用户把开关拨到开的那一刻被调用。
  */
 export async function requestPermission(): Promise<ReminderPermission> {
+  const Notifications = requireNotifications();
+  if (!Notifications) return 'denied';
   try {
     const status = await Notifications.requestPermissionsAsync();
     if (status.granted) return 'granted';
@@ -222,6 +289,8 @@ export async function requestPermission(): Promise<ReminderPermission> {
  * 那是唯一能保证不重复轰炸的办法，而当前 App 里还没有别的定时通知。
  */
 export async function cancelReminders(): Promise<void> {
+  const Notifications = requireNotifications();
+  if (!Notifications) return;
   try {
     const scheduled = await Notifications.getAllScheduledNotificationsAsync();
     const mine = scheduled.filter((request) => request.identifier.startsWith('reminder:'));
@@ -301,6 +370,10 @@ export function buildOccurrences(
  * 并返回一句「提醒没开」。启动时、改提醒时间后、删任务后都调它。
  */
 export async function syncReminders(nowMs: number = Date.now()): Promise<ReminderSyncResult> {
+  const Notifications = requireNotifications();
+  if (!Notifications) {
+    return { ok: false, scheduled: 0, skipped: 0, message: '这台设备上发不了通知，提醒没有排。' };
+  }
   const settings = getSettings();
   const { today } = effectiveToday(nowMs, settings.day_start_hour, settings.last_settled_date);
 
@@ -447,6 +520,8 @@ export function nextReviewReminderMs(nowMs: number, dayStartHour: number): numbe
  */
 export async function syncReviewReminder(nowMs: number = Date.now()): Promise<void> {
   try {
+    const Notifications = requireNotifications();
+    if (!Notifications) return;
     // 先取消旧的：一周一条，重排就是替换
     await cancelReviewReminder();
 
@@ -492,6 +567,8 @@ export async function syncReviewReminder(nowMs: number = Date.now()): Promise<vo
 
 /** 取消周复盘提醒（只取消自己那条） */
 export async function cancelReviewReminder(): Promise<void> {
+  const Notifications = requireNotifications();
+  if (!Notifications) return;
   try {
     const scheduled = await Notifications.getAllScheduledNotificationsAsync();
     const mine = scheduled.filter((request) =>

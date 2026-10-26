@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ember — 一个完全离线的记录 App</title>
+<meta name="description" content="Ember 是一个完全离线的 Android 记录 App。没有账号、没有服务器、不申请网络权限。数据只在这台手机上。">
+<meta name="theme-color" content="#FAF9F8">
+<!--
+  站点配置：**只改这一处**。
+
+  repo        GitHub 仓库地址（Pages 与 Releases 都从它拼出来）
+  apkVersion  现在能下载的版本号。还没有出包时写 null，
+              下载按钮会自己变成「还没出包」的状态，而不是一个点不动的死链。
+  apkSize     显示给用户看的大小。null 表示不写。
+-->
+<script>
+  window.EMBER_SITE = {
+    repo: 'https://github.com/CHANGE-ME/ember',
+    apkVersion: null,
+    apkSize: null,
+    minAndroid: '8.0',
+  };
+</script>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%231B4A94'/%3E%3Cpath d='M13.09,11.34C12.21,7.96 11.03,5.29 11.00,2.20C9.32,4.79 8.32,10.31 10.91,12.66C10.64,13.73 14.17,11.60 13.09,11.34ZM12.09,13.06C14.51,13.67 17.25,11.55 18.60,9.80C16.46,10.34 14.21,9.95 11.91,10.94C11.21,10.35 11.49,13.76 12.09,13.06ZM11.10,12.41C11.25,14.55 12.74,15.96 13.20,17.80C14.08,16.12 14.42,13.11 12.90,11.59C13.20,10.79 10.30,12.11 11.10,12.41ZM11.54,10.94C8.97,11.09 7.23,12.98 5.20,14.00C7.40,14.58 10.61,14.84 12.46,13.06C13.39,13.42 11.90,10.02 11.54,10.94Z' fill='%23FAF9F8'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<a class="skip" href="#main">跳到正文</a>
+
+<header class="topbar">
+  <div class="wrap topbar-in">
+    <a class="brand" href="./" aria-label="Ember 首页">
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M13.09,11.34C12.21,7.96 11.03,5.29 11.00,2.20C9.32,4.79 8.32,10.31 10.91,12.66C10.64,13.73 14.17,11.60 13.09,11.34ZM12.09,13.06C14.51,13.67 17.25,11.55 18.60,9.80C16.46,10.34 14.21,9.95 11.91,10.94C11.21,10.35 11.49,13.76 12.09,13.06ZM11.10,12.41C11.25,14.55 12.74,15.96 13.20,17.80C14.08,16.12 14.42,13.11 12.90,11.59C13.20,10.79 10.30,12.11 11.10,12.41ZM11.54,10.94C8.97,11.09 7.23,12.98 5.20,14.00C7.40,14.58 10.61,14.84 12.46,13.06C13.39,13.42 11.90,10.02 11.54,10.94Z" />
+      </svg>
+      <span>Ember</span>
+    </a>
+    <nav class="topnav" aria-label="页面导航">
+      <a href="#promise">三条底线</a>
+      <a href="#refuse">它不做什么</a>
+      <a href="#install">怎么装</a>
+      <a href="#data">数据在哪</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ============ 首屏：一句话 + 一个真的能点的火带 ============ -->
+  <section class="hero wrap">
+    <div class="hero-text">
+      <h1>火不会因为你停了一天就灭。</h1>
+      <p class="lede">
+        Ember 是一个完全离线的 Android 记录 App。你每天在上面记下真实生活里的小事——
+        喝一杯水、走十分钟、读两页书。每记一件，顶上那条火带就往前烧一截。
+      </p>
+      <p class="lede lede-2">
+        没有账号，没有服务器，不申请网络权限。数据只在这台手机上。
+      </p>
+
+      <div class="cta-row">
+        <a class="btn btn-primary" id="download" href="#" aria-describedby="download-note">
+          <span id="download-label">下载 apk</span>
+        </a>
+        <a class="btn btn-quiet" id="repo-link" href="#">看源码</a>
+      </div>
+      <p class="note" id="download-note"></p>
+    </div>
+
+    <!--
+      这个面板就是首页「今天」的骨架。它能点，逻辑与 App 一致：
+      点圆圈 → 火带前进 → 飘一个 +26；长按已记的行 → 撤销，火带退回。
+      火带的画法也照抄 HearthBar：白纸上「深 = 热」，不是橙色。
+    -->
+    <div class="demo" role="group" aria-label="可以点的演示：试着点一下圆圈">
+      <div class="demo-head">
+        <p class="demo-title" id="demo-headline">下午好。</p>
+        <p class="demo-date" id="demo-date">今天</p>
+      </div>
+
+      <div class="hearth" id="hearth">
+        <div class="hearth-track"></div>
+        <div class="hearth-lit" id="hearth-lit"></div>
+        <div class="hearth-glow hearth-glow-a"></div>
+        <div class="hearth-glow hearth-glow-b" id="hearth-head"></div>
+        <div class="hearth-flare" id="hearth-flare"></div>
+      </div>
+      <div class="hearth-caption">
+        <span id="hearth-count">今天 0 / 3 件</span>
+        <span class="hearth-award" id="hearth-award" aria-live="polite"></span>
+      </div>
+
+      <ul class="habit-list" id="habit-list"></ul>
+
+      <p class="demo-hint">点圆圈记一次；长按已经记过的那一行可以撤销。</p>
+    </div>
+  </section>
+
+  <!-- ============ 三条底线 ============ -->
+  <section class="wrap section" id="promise">
+    <h2>三条底线</h2>
+    <p class="section-lede">这三条不是宣传语，是代码里的约束。下面每一条都写了它在实现上意味着什么。</p>
+
+    <dl class="defs">
+      <div class="def">
+        <dt>不扣减</dt>
+        <dd>
+          不掉等级、不没收东西、不死亡。断签了可以修；修不了也只是从头开始数，
+          历史一直在。断签之后，界面上任何位置都不会出现一个「0」，
+          也不会把过去的天数抹掉——它显示的是「有一段空档」，
+          旁边并排着历史最佳与累计天数。
+        </dd>
+      </div>
+      <div class="def">
+        <dt>不联网</dt>
+        <dd>
+          App 里没有网络请求代码，构建配置里显式移除了联网权限。
+          你装完之后可以在系统的应用信息里查权限列表——那里确实没有「网络」。
+          因此也没有账号、没有同步、没有云端备份。
+        </dd>
+      </div>
+      <div class="def">
+        <dt>不评判</dt>
+        <dd>
+          只记录，不指责。没有完成率、没有排名、没有「别人怎么样」。
+          统计页只报「最近 30 天有几天动过」，不报分母。
+          文案里有一张禁用词表，动态生成的每一句话在显示前都要过一遍。
+        </dd>
+      </div>
+    </dl>
+  </section>
+
+  <!-- ============ 它不做什么 ============ -->
+  <section class="wrap section" id="refuse">
+    <h2>它不做什么</h2>
+    <p class="section-lede">
+      一个产品的形状，一半由它拒绝的东西决定。下面这些是刻意不做的，不是还没做。
+    </p>
+
+    <ul class="refusals">
+      <li>
+        <strong>不做排名，也不做「好友在做什么」。</strong>
+        比较需要一个「别人」，而这个 App 里只有你。
+      </li>
+      <li>
+        <strong>不做断签后的扣减。</strong>
+        连续天数是一个读数，不是一个筹码。断了就是从头数，没有别的后果。
+      </li>
+      <li>
+        <strong>不做数值加成。</strong>
+        五个属性只是记录你把时间花在哪几维，不会影响你能做多少事。
+        一旦它影响产出，它就会被刷。
+      </li>
+      <li>
+        <strong>不做云端同步。</strong>
+        代价说在前面：手机丢了、坏了、恢复出厂，记录就没了。
+        所以有一个「导出备份」——一份带校验和的 JSON 文件，你自己保管。
+      </li>
+      <li>
+        <strong>不做账号。</strong>
+        打开就能用，没有注册页、没有验证码、没有「登录以继续」。
+      </li>
+    </ul>
+  </section>
+
+  <!-- ============ 安装 ============ -->
+  <section class="wrap section" id="install">
+    <h2>怎么装</h2>
+    <p class="section-lede">
+      这个 App 不上应用商店，装的是一个 apk 文件。下载之前，手机可能会提示「此类文件可能有害」——
+      那是所有非商店来源的安装包都会遇到的提示，不是这个文件有问题。
+    </p>
+
+    <ol class="steps">
+      <li>
+        <h3>下载 apk</h3>
+        <p>点上面的下载按钮。文件会进「下载」文件夹。</p>
+      </li>
+      <li>
+        <h3>允许这个来源安装</h3>
+        <p>
+          点开文件时，系统会问要不要允许「文件」或浏览器安装应用。
+          允许之后就能装。装完可以把这个权限关掉。
+        </p>
+      </li>
+      <li>
+        <h3>装完打开，选一件小事</h3>
+        <p>
+          第一次打开是三屏说明，然后让你从几个模板里挑最多三件。
+          默认选中「喝一杯水」。之后随时可以改。
+        </p>
+      </li>
+      <li>
+        <h3>把提醒打开（可选）</h3>
+        <p>
+          设置 → 节奏 → 提醒，给每件事各设一个时刻。
+          系统会问一次通知权限——只在你想设提醒的时候问，不会一打开就弹。
+        </p>
+      </li>
+    </ol>
+
+    <p class="reqs" id="reqs"></p>
+  </section>
+
+  <!-- ============ 数据在哪 ============ -->
+  <section class="wrap section" id="data">
+    <h2>数据在哪</h2>
+    <p class="section-lede">
+      全部在一台手机上，一个 SQLite 文件里。没有第二份，也没有上传。
+    </p>
+
+    <dl class="defs">
+      <div class="def">
+        <dt>位置</dt>
+        <dd>App 的私有目录。其他 App 读不到，你也没法用文件管理器直接打开。</dd>
+      </div>
+      <div class="def">
+        <dt>备份</dt>
+        <dd>
+          设置 → 数据 → 备份，导出一份 JSON 交给系统的分享面板
+          （存到网盘、发给自己、拷到电脑都可以）。导入是全量替换：
+          先校验文件、再核对校验和、再把当前数据拍一份快照，
+          所以导错了还能走「回到导入前」。
+        </dd>
+      </div>
+      <div class="def">
+        <dt>卸载</dt>
+        <dd>卸载 App 会一起删掉这个文件。删之前先导出备份。</dd>
+      </div>
+    </dl>
+  </section>
+
+  <!-- ============ 结尾 ============ -->
+  <section class="wrap section end">
+    <p class="end-line">先记一件小事，就今天。</p>
+    <p class="end-note">
+      这个页面本身也不加载任何外部资源：没有统计脚本、没有字体 CDN、没有追踪像素。
+      它和 App 是同一种东西。
+    </p>
+  </section>
+
+</main>
+
+<footer class="wrap foot">
+  <p>
+    <span id="foot-version">Ember</span>
+    <span class="dot">·</span>
+    <a id="foot-repo" href="#">源码</a>
+    <span class="dot">·</span>
+    <a id="foot-releases" href="#">历史版本</a>
+  </p>
+  <p class="foot-fine">
+    只有 Android。不上应用商店，因为新个人开发者账号需要先找 12 个人封闭测试 14 天，
+    而应用商店在中国大陆也不可用。
+  </p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

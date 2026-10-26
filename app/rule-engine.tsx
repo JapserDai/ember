@@ -57,7 +57,7 @@ export default function RuleEngineScreen() {
 
   const handleBack = () => {
     if (router.canGoBack()) router.back();
-    else router.replace('/memories');
+    else router.replace('/journal');
   };
 
   return (
@@ -73,7 +73,7 @@ export default function RuleEngineScreen() {
       <View style={{ paddingHorizontal: theme.spacing.pageX }}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="返回回忆"
+          accessibilityLabel="返回日记"
           onPress={handleBack}
           style={({ pressed }) => ({
             minHeight: theme.touchTarget,

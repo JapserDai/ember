@@ -137,13 +137,27 @@ export function repairStreak(nowMs: number = Date.now()): RepairOutcome {
     }
 
     if (!status.repairable) {
-      // 差多少钱要说清楚：只说「不够」等于让用户自己猜
-      if (status.reason === 'insufficient_ember' || status.reason === 'insufficient_material') {
+      /*
+       * 差多少钱要说清楚：只说「不够」等于让用户自己猜。
+       *
+       * 这里必须先把这个分支的 reason 收窄，不能直接拿 `status.reason` 去索引
+       * `REPAIR_MESSAGE`：`GapCheck['reason']` 里含 'ok' 与 'nothing_to_repair'，
+       * 而 REPAIR_MESSAGE 的键是 `Exclude<..., 'ok'>` —— 前者索引得到，后者索引不到。
+       * 收窄成 `Exclude<GapCheck['reason'], 'ok'>` 之后两边键集合一致，tsc 不再报 TS7053。
+       */
+      const reason: Exclude<GapCheck['reason'], 'ok'> =
+        // 'ok' 在这个分支里**不可达**（会走到这里的只有「断了但修不了」）。
+        // 写这一行只是为了把类型收窄：tsc 不会从 `!status.repairable` 推出
+        // reason !== 'ok'，因为它不读那个函数的实现。万一真发生，
+        // 当「这一段连着」处理，不会崩、也不会编出一句新话。
+        status.reason === 'ok' ? 'nothing_to_repair' : status.reason;
+
+      if (reason === 'insufficient_ember' || reason === 'insufficient_material') {
         const player = getPlayerSnapshot();
         return {
           ok: false as const,
-          reason: status.reason,
-          message: REPAIR_MESSAGE[status.reason],
+          reason,
+          message: REPAIR_MESSAGE[reason],
           shortfall: {
             ember: Math.max(0, status.cost.ember - player.ember),
             material: Math.max(0, status.cost.material - player.material),
@@ -152,8 +166,8 @@ export function repairStreak(nowMs: number = Date.now()): RepairOutcome {
       }
       return {
         ok: false as const,
-        reason: status.reason,
-        message: REPAIR_MESSAGE[status.reason],
+        reason,
+        message: REPAIR_MESSAGE[reason],
       };
     }
 

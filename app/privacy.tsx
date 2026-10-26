@@ -1,9 +1,11 @@
+import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Card } from '../src/components/Card';
+import { SparkMark } from '../src/components/SparkMark';
 import { useTheme } from '../src/theme/ThemeProvider';
 
 /**
@@ -30,6 +32,14 @@ import { useTheme } from '../src/theme/ThemeProvider';
  * `INTERNET` 与 `ACCESS_NETWORK_STATE`（见 docs/02 §7.4）。
  * 所以用户装完在系统设置里查到的权限列表里，确实没有联网。
  */
+/**
+ * 版本号。从 `app.json` 的 `expo.version` 读，不另写常量。
+ *
+ * `expo-constants` 已经在依赖里（`services/reminders.ts` 用它判断
+ * 是不是跑在 Expo Go 里），所以这里不多装任何东西。
+ */
+const APP_VERSION = Constants.expoConfig?.version ?? '';
+
 export default function PrivacyScreen() {
   const { theme, palette } = useTheme();
   const insets = useSafeAreaInsets();
@@ -74,18 +84,35 @@ export default function PrivacyScreen() {
           </Text>
         </Pressable>
 
-        <Text
-          style={{
-            marginTop: theme.spacing.md,
-            fontSize: theme.typography.size.title,
-            lineHeight: theme.typography.lineHeight.title,
-            fontWeight: theme.typography.weight.semibold,
-            color: palette.text,
-            fontFamily: theme.typography.fontFamily.title,
-          }}
+        <View
+          style={[
+            styles.titleRow,
+            { marginTop: theme.spacing.md, gap: theme.spacing.sm },
+          ]}
         >
-          你的数据在哪儿
-        </Text>
+          <Text
+            style={{
+              flexShrink: 1,
+              fontSize: theme.typography.size.title,
+              lineHeight: theme.typography.lineHeight.title,
+              fontWeight: theme.typography.weight.semibold,
+              color: palette.text,
+              fontFamily: theme.typography.fontFamily.title,
+            }}
+          >
+            你的数据在哪儿
+          </Text>
+          {/*
+           * 品牌记号唯一出现在界面里的地方（D50）。
+           *
+           * 为什么是这一页：它是全 App 唯一一页「说的就是 Ember 自己是什么」，
+           * 而记号就是那个「是什么」。放在标题右边、与标题同高，是「署名」
+           * 而不是「装饰」——它挨着的那句话是这一页的结论。
+           *
+           * 不传 label：读屏念完「你的数据在哪儿」再念一句「火花」是噪音。
+           */}
+          <SparkMark size={theme.typography.size.title} />
+        </View>
       </View>
 
       <Card style={{ marginTop: theme.spacing.lg, marginHorizontal: theme.spacing.pageX }}>
@@ -199,7 +226,52 @@ export default function PrivacyScreen() {
         >
           这一页说的每一句都可以自己验证：权限在系统设置里，数据在导出的文件里。
         </Text>
+
+        {/*
+         * 署名。与落地页顶栏、App 图标、通知栏图标是同一个记号
+         * （`src/domain/spark.ts` 的 SPARK_PATH，由 `scripts/make-logo.ts` 生成位图）。
+         *
+         * 版本号读 `app.json` 的 `expo.version`，不另写一份常量——
+         * 写死的那份迟早与真正打进包里的版本不一致，而「关于」里写错版本
+         * 是最没必要的一种错。
+         */}
+        <View
+          style={[
+            styles.signature,
+            { marginTop: theme.spacing.xl, gap: theme.spacing.xs },
+          ]}
+        >
+          <SparkMark size={16} />
+          <Text
+            style={{
+              fontSize: theme.typography.size.caption,
+              lineHeight: theme.typography.lineHeight.caption,
+              color: palette.textMuted,
+              fontFamily: theme.typography.fontFamily.body,
+            }}
+          >
+            Ember {APP_VERSION}
+          </Text>
+        </View>
       </View>
     </ScrollView>
   );
 }
+
+/*
+ * 只留布局，不留尺寸与颜色：间距走 theme.spacing、颜色走 palette（D30 的同一条规矩）。
+ * 两处 gap 在组件里给，因为它们跟着字号变——1.5 倍字号时记号与字的距离也该大一点。
+ */
+const styles = StyleSheet.create({
+  /** 标题与记号同一条横线。记号是署名，所以与标题底部对齐而不是居中 */
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+  },
+  /** 页脚署名：记号 + 「Ember 0.0.1」 */
+  signature: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+});

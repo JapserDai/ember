@@ -10,7 +10,8 @@ import {
   type ReviewAnswers,
 } from '../../src/domain/review';
 import { getReviewView, saveReview, type ReviewView } from '../../src/services/review';
-import { exportWeekReport } from '../../src/services/weekReport';
+import { useExportCard } from '../../src/services/exportImage';
+import { buildWeekCard, exportWeekReport } from '../../src/services/weekReport';
 import { useTheme } from '../../src/theme/ThemeProvider';
 
 /**
@@ -57,6 +58,14 @@ export default function ReviewScreen() {
   /** 导出结果的一句话 */
   const [exportNotice, setExportNotice] = useState<string | null>(null);
 
+  /**
+   * 图片版导出。
+   *
+   * `host` 必须渲染在本页（ScrollView 里），它负责把离屏卡片的节点挂到树上；
+   * 不渲染的话点「存成图片」只会得到一句「没能生成图片」。
+   */
+  const { exportAndShare, host: exportHost } = useExportCard();
+
   const refresh = useCallback(() => {
     try {
       const next = getReviewView();
@@ -78,7 +87,7 @@ export default function ReviewScreen() {
 
   const handleBack = () => {
     if (router.canGoBack()) router.back();
-    else router.replace('/memories');
+    else router.replace('/journal');
   };
 
   /**
@@ -395,14 +404,67 @@ export default function ReviewScreen() {
           {/*
            * 导出周报。
            *
-           * 这一版导出的是**文字**（D39）：图片版要 react-native-view-shot，
-           * 而它还没装。文字版已经能「把这周小结发给自己」，且零新依赖、
-           * 零新权限——而新权限会直接撞上「不申请网络/存储权限」那条硬约束。
+           * 两个入口并列，因为它们服务的场景不同（D39）：
+           *   - **存成图片**：发朋友圈、截图转发。1080 宽、固定版式，中文不截断。
+           *   - **发成文字**：粘到备忘录、发给自己的邮箱、贴进日记。
+           *     文字在**所有**能接收分享的地方都能读，这是它比图片稳的地方。
+           *
+           * 两个都走系统分享面板，所以都不需要存储权限，也不涉及网络。
            */}
           <View style={{ marginTop: theme.spacing.xl, paddingHorizontal: theme.spacing.pageX }}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="导出这一周的周报"
+              accessibilityLabel="把这一周存成图片"
+              accessibilityState={{ disabled: exporting }}
+              onPress={() => {
+                if (exporting) return;
+                setExporting(true);
+                setExportNotice(null);
+                void (async () => {
+                  try {
+                    // 先把当前编辑中的答案存下来，否则卡片上是上次保存的版本
+                    if (view?.weekKey) saveReview(view.weekKey, answers);
+                  } catch (err) {
+                    console.warn('[Ember] 导出前保存失败', err);
+                  }
+                  try {
+                    const { card, weekKey } = buildWeekCard();
+                    const result = await exportAndShare({ data: card, prefix: 'week', key: weekKey });
+                    setExportNotice(result.message);
+                  } catch (err) {
+                    console.warn('[Ember] 导出图片失败', err);
+                    setExportNotice('这台手机上没能生成图片，可以发成文字。');
+                  } finally {
+                    setExporting(false);
+                  }
+                })();
+              }}
+              disabled={exporting}
+              style={({ pressed }) => ({
+                minHeight: 52,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: theme.radius.button,
+                backgroundColor: palette.primary,
+                opacity: exporting ? 0.5 : pressed ? 0.75 : 1,
+              })}
+            >
+              <Text
+                style={{
+                  fontSize: theme.typography.size.body,
+                  lineHeight: theme.typography.lineHeight.body,
+                  fontWeight: theme.typography.weight.medium,
+                  color: palette.onPrimary,
+                  fontFamily: theme.typography.fontFamily.body,
+                }}
+              >
+                {exporting ? '正在生成…' : '存成图片'}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="把这一周发成文字"
               accessibilityState={{ disabled: exporting }}
               onPress={() => {
                 if (exporting) return;
@@ -415,6 +477,7 @@ export default function ReviewScreen() {
               }}
               disabled={exporting}
               style={({ pressed }) => ({
+                marginTop: theme.spacing.sm,
                 minHeight: 52,
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -433,7 +496,7 @@ export default function ReviewScreen() {
                   fontFamily: theme.typography.fontFamily.body,
                 }}
               >
-                {exporting ? '正在写…' : '导出这一周'}
+                {exporting ? '正在写…' : '发成文字'}
               </Text>
             </Pressable>
 
@@ -454,6 +517,9 @@ export default function ReviewScreen() {
           </View>
         </>
       ) : null}
+
+      {/* 离屏导出卡片的挂载点。必须在本页，且不占版面 */}
+      {exportHost}
     </ScrollView>
   );
 }

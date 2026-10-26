@@ -12,9 +12,25 @@
 
 用户是近乎零基础的自学者，靠 AI 写代码。**所有代码注释、所有文档、所有界面文案必须是中文。**
 
-**当前进度**：阶段 0、1、2 **全部完成**；阶段 3 完成 3/4（图片版周报未做）；阶段 4 完成 6/7（回忆卡图片未做）；阶段 5 完成 5/6（内容模板化未做）；阶段 6 完成 6/9（落地页、商店截图、D1–D7 引导未做，均需真机）。
-**代码状态**：`tsc` 0 错误、`expo export` 通过、仓库外 193 项断言全绿（最后一次验证在 2026-10-25）。**2026-10-26 的所有改动（D37–D42，包括 12 次迁移）均未跑过 `tsc`，见 §1.1**。
-**最大的缺口**：**从头到尾没在真机上点过一次。** 所有验证都是逻辑层 + 打包层。
+**当前进度**：阶段 0–5 **全部完成**；阶段 6 完成 **7/9**（只剩「商店截图」与「真机手测」——两件都只差一台真机）。
+**代码状态**（2026-10-27 实测）：`tsc` **0 错误**、`expo export` **通过**（3.4MB .hbc）、`npx expo start` 起得来、仓库外 **414 项断言全绿**（14 个套件）。
+
+**2026-10-26 上一轮（D48 / D49）**：底栏从「今天/目标/回忆/我的」改成「**今天/状态/日记/我的**」。
+「目标」换成照抄人升（LifeUp）的「**状态**」页（人生等级 + 五维属性条 + 称号），目标降为二级页（入口在「我的」）；
+「回忆」改成「**日记**」，新增每天写一句（新表 `journal_entries`，迁移 **v13→v14**），复盘仍在里面。
+**五维是从「我的」页搬到了「状态」页，不是删掉**——数据、称号、猜属性规则一个字段都没动。
+**最大的缺口**：**从头到尾没在真机上点过一次。** 所有验证都是逻辑层 + 打包层。这一轮新增的三个功能里有三个只在真机上才成立的点（`react-native-view-shot` 原生模块是否链上、卡片截图中文是否截断、通知与权限的实际表现），`expo export` 与断言都证明不了它们。
+
+**2026-10-27 这一轮（D50）**：**品牌记号换成「一朵小火花」**。旧的 `assets/icon.png` 是一个发光的蓝色「Λ」（语义是「上升」，不是「火」），
+底栏「今天」是一簇火苗，落地页顶栏是一支描边的小火苗——**同一件事画了三遍**。现在形状只在 `src/domain/spark.ts` 写一次：
+界面走 `components/SparkMark`，六个位图由 `scripts/make-logo.ts` 生成，落地页顶栏与 favicon 内联同一串 path。
+`SparkMark` 之前**没有任何地方用**，现在接在隐私页（标题旁一个记号 + 页脚「记号 + Ember 0.0.1」，版本号读 `app.json`）。
+同时修了 `scripts/make-logo.ts` 的 5 个 tsc 错误（`expo/tsconfig.base` 没带 `types: ["node"]`，加一行 `/// <reference types="node" />`）。
+
+**2026-10-26/27 上一轮做了什么**（D43–D49，详见 DECISIONS）：
+图片导出（周报图 / 月报图 / 复盘卡）、日常维护收成一个函数并接到「回到前台」、
+D1–D7 引导（迁移 v12→v13）、GitHub Pages 落地页（可点的火带演示）。
+**交接时请先按 §1 跑一遍基线**——上一版文档写的「tsc 绿」当时其实有 9 个错误。
 
 ---
 
@@ -25,13 +41,29 @@
 ```bash
 cd C:/Users/16907/Ember
 npx tsc --noEmit                              # 期望：无输出
-npx expo export --platform android --max-workers 1   # 期望：成功，约 3.2MB .hbc
-sh "C:/Users/16907/AppData/Local/Temp/ember-check/run-all.sh"  # 期望：8 个套件全绿
+npx expo export --platform android --max-workers 1   # 期望：成功，约 3.4MB .hbc
+sh "C:/Users/16907/AppData/Local/Temp/ember-check/run-all.sh"  # 期望：14 个套件全绿（414 项）
 ```
 
 第三条是**仓库外**的临时测试（见 §7）。它在 `%TEMP%` 下，不进 git——如果那台机器上已经没有了，§7 写了怎么重建。
 
-### 1.1 如果 `bash` 工具一跑就报 WSL 错（2026-10-26 遇到过）
+**2026-10-27 实测结果**（三条都跑过）：
+
+| 检查 | 结果 |
+| --- | --- |
+| `npx tsc --noEmit` | 0 错误 |
+| `npx expo export` | 成功，3.4MB `.hbc` |
+| `run-all.sh` | 14 套件 / 414 项断言全绿 |
+| `npx expo start` + 请求 dev bundle | HTTP 200，路由里含 `(tabs)/status`、`(tabs)/journal`、`goals/index` |
+
+> **上一版文档说「tsc 0 错误、193 项全绿」是错的。** 接手时实测到 **9 个 tsc 错误**
+> （`app/titles.tsx` 五条 import 路径写成 `../../src/`、`_layout.tsx` 把
+> `maxFontSizeMultiplier` 写进 `TextStyle`、`services/streak.ts` 用 `'ok'` 索引
+> `REPAIR_MESSAGE`）和 1 条过时断言（`e2e` 里写死「导出了 5 张表」，而当时已有 8 张）。
+> 九个错误已全部修掉，断言改成与 `BACKUP_TABLES.length` 联动。
+> **教训：文档里的「已绿」不能当证据，接手必须自己跑一遍。**
+
+### 1.1 如果 `bash` 工具一跑就报 WSL 错（2026-10-26 遇到过，现已修好）
 
 现象：任何命令都返回
 `WSL (10 - Relay) ERROR: CreateProcessCommon:800: execvpe(/bin/bash) failed`，或者干脆挂 15–105 秒后超时。
@@ -47,16 +79,45 @@ sh "C:/Users/16907/AppData/Local/Temp/ember-check/run-all.sh"  # 期望：8 个�
 注意：`curl`/`node` 之类都没问题，坏的只是「Pi 用哪个 bash」。
 **改完 `settings.json` 必须重启 Pi，`/reload` 不一定重解析 shellPath。**
 
-> 写这一节的时候 `bash` 还没修好，所以 **D37（字号缩放）与 D38（连胜修复）那两批改动只做了静态评审，没跑过 `tsc` 与那 8 个套件**。
-> 接手后第一件事就是按上面三条跑一遍，重点看：
-> - `src/theme/ThemeProvider.tsx`（新引了 `useWindowDimensions`）
-> - `src/theme/tokens.ts`（新增 `scaleLineHeights`）
-> - `src/domain/streak.ts`（**重写过**：旧的 `StreakState` / `advanceStreak` / `repairStreak` 已删除）
-> - `src/services/streak.ts` / `src/db/repo/streak.ts` / `src/components/StreakRepairCard.tsx`（全新）
-> - `src/domain/backup.ts` 的 `sinceSchemaVersion` 分支
->
-> 纯函数部分已经用独立脚本手算验过 20 余个用例（`summarizeDates` 带桥接、`checkRepairableGap` 的
-> 缺口/期限/余额边界、`graceRemaining` 的跨月重置），全部通过。但那不是 `tsc`，也不是真机。
+> 这一节保留着，因为那台机器上的修法不是仓库里的东西——换一台机器接手时很可能再撞上。
+
+### 1.2 开发服务器报 `Cannot read property 'ErrorBoundary' of undefined`（2026-10-27 踩到）
+
+```
+ERROR  [TypeError: Cannot read property 'ErrorBoundary' of undefined]
+Code: react.development.js
+> 1297 |       return resolveDispatcher().useMemo(create, deps);
+```
+
+**先查这四个目录在不在**（一条命令）：
+
+```bash
+cd C:/Users/16907/Ember
+ls -d node_modules/react-dom node_modules/react-native-reanimated       node_modules/react-native-worklets node_modules/react-native-gesture-handler 2>/dev/null
+```
+
+**只要有任何一个存在，就是这个问题。** 原因：这五个是 `expo-router` 声明的
+**optional peer**，npm 7+ 会把它们也装到顶层；而
+
+1. `react-dom` 在、`react-native-web` 不在时，`expo-router` 会从
+   `views/ErrorBoundary` 取到一个 **undefined 的导出**；
+2. `reanimated` / `worklets` 需要在 `babel.config.js` 里注册插件，而这个项目
+   **刻意没有 `babel.config.js`**（D3：少一层配置卡点），插件没注册会让
+   worklet 的 hook 调度错位。
+
+**修法**（`.npmrc` 已经写好了，别再删它）：
+
+```bash
+rm -rf node_modules
+npm install          # .npmrc 里的 legacy-peer-deps=true 会挡住那五个
+```
+
+**为什么会发生**：跑 `npx expo install <任何包>` 时 npm 顺手补 optional peer。
+那次装了 `react-native-view-shot`，连带进来 **20 个包**，其中就有这 4 个。
+
+> **这一条的教训比修法重要**：`tsc` 0 错误、`expo export` 通过、305 项断言全绿——
+> **三个都发现不了它**，因为生产打包走的模块图与开发服务器不是同一份。
+> 所以「导出成功」不能替代「`npx expo start` 能起来」。
 
 ---
 
@@ -68,6 +129,7 @@ sh "C:/Users/16907/AppData/Local/Temp/ember-check/run-all.sh"  # 期望：8 个�
 | --- | --- |
 | **不申请网络权限** | `app.json` 的 `android.blockedPermissions` 里删掉了 INTERNET / ACCESS_NETWORK_STATE / 存储 / 悬浮窗。这是产品的第一条承诺。改完必须用 `npx expo config --type introspect` 复核这些权限仍带 `tools:node="remove"` |
 | **不许装** Drizzle、Skia、expo-updates、任何同步框架、任何网络请求库 | 用户明确要求；也与「离线、少依赖」一致 |
+| **不许让 `expo-router` 的 optional peer 混进 `node_modules`** | 见 §1.2。`.npmrc` 的 `legacy-peer-deps=true` 就是为它写的。装进来会让**开发服务器**报 `Cannot read property 'ErrorBoundary' of undefined`，而 `tsc` / `expo export` / 那 305 项断言**全都发现不了** |
 | **不许删/覆盖** `@jasperdai__ember.jks` 与 `@jasperdai__ember.bak.jks` | 两个 keystore 在仓库根目录（已被 .gitignore 排除）。删错一个，**已经装在手机上的 apk 就再也无法升级** |
 | **不许读/探测** 任何含凭据的文件（如 `~/.expo/state.json`） | 已被安全分类器判定为凭据探测。被拦下的命令**不要绕过**，换一条路或直接问用户 |
 
@@ -75,7 +137,7 @@ sh "C:/Users/16907/AppData/Local/Temp/ember-check/run-all.sh"  # 期望：8 个�
 
 **铁律一：已发布的迁移与建表常量都不许改**（D31）。
 
-`src/db/schema.ts` 里的 `SCHEMA_SQL_V1`、各 `MIGRATE_V*_TO_V*_SQL`、以及 `src/db/migrate.ts` 里已经写进数组的迁移函数，**一个字都不能改**。加列只能**新写一条**迁移常量并在 `MIGRATIONS` 数组末尾追加，同时把 `CURRENT_SCHEMA_VERSION` +1（**现在是 7**）。
+`src/db/schema.ts` 里的 `SCHEMA_SQL_V1`、各 `MIGRATE_V*_TO_V*_SQL`、以及 `src/db/migrate.ts` 里已经写进数组的迁移函数，**一个字都不能改**。加列只能**新写一条**迁移常量并在 `MIGRATIONS` 数组末尾追加，同时把 `CURRENT_SCHEMA_VERSION` +1（**现在是 13**）。
 
 这不是洁癖，是踩过的坑：`goal_id` 被加进 `SCHEMA_SQL_V1` 之前就建过库的安装，`CREATE TABLE IF NOT EXISTS` 不会补列，于是那些库永远缺这一列——表现是**首页读不出数据、新建任务点了保存毫无反应**。测试时用全新库永远看不出来。
 
@@ -118,17 +180,18 @@ app/  →  services/  →  db/repo/  →  domain/
 
 ```
 app/                          页面（expo-router 文件路由）
-  _layout.tsx                 根布局：bootstrap（开库→迁移→种子→结算→宽限券→月度奖励→读设置）
+  _layout.tsx                 根布局：bootstrap（开库→迁移→种子→日常维护→读设置）+ AppState 回前台补维护
   onboarding.tsx              首次启动引导（三屏，默认选中「喝一杯水」）
-  (tabs)/index.tsx            今天：火带 + 习惯行 + 待办卡 + 微行动 + 今日发现
-  (tabs)/goals.tsx            目标列表（进行中 / 已完成分组）
-  (tabs)/memories.tsx         回忆：周复盘 + 月复盘 + 关键节点 + 叙事入口
-  (tabs)/me.tsx               我的：头像、等级、经验、余烬、连胜、称号、五维、商店/统计入口
+  (tabs)/index.tsx            今天：火带 + 习惯行 + 待办卡 + 微行动 + 今日发现 + D1/2/4/6/7 引导卡
+  (tabs)/status.tsx           ★ 状态（D48）：人生等级 + 五维属性条 + 称号摘要（照抄人升版式）
+  (tabs)/journal.tsx          ★ 日记（D49）：今天写一句 + 按天历史 + 周/月复盘入口 + 关键节点 + 存成图片
+  (tabs)/me.tsx               我的：头像、Lv、余烬、连胜、称号、商店/统计/目标/状态入口 + D5 引导卡
+  goals/index.tsx             目标列表（进行中 / 已完成分组）+ D3 引导卡（D48 起是二级页）
   goals/new.tsx               新建目标
   goals/[id].tsx              目标详情：改标题/为什么/截止日、挂任务、手动完成
   profile/edit.tsx            人物资料：名字 + 一句自我介绍
-  review/index.tsx            周复盘（三个固定问题 + 导出周报）
-  review/month.tsx            月复盘（看数字 + 一句可写的）
+  review/index.tsx            周复盘（三个固定问题 + 存成图片 / 发成文字）
+  review/month.tsx            月复盘（看数字 + 一句可写的 + 存成图片）
   titles.tsx                  称号图鉴（未解锁显示「？」+ 还差多少）
   shop.tsx                    商店 + 材料合成
   narrative.tsx               叙事：四季故事 + Boss + 月度主题
@@ -142,11 +205,11 @@ app/                          页面（expo-router 文件路由）
   tasks/new.tsx               新建任务（必填只有名字）
 
 src/db/
-  schema.ts                   ★ 建表 SQL + 全部迁移常量（铁律一）。现到 v12
-  migrate.ts                  ★ 手写迁移器（PRAGMA user_version），CURRENT_SCHEMA_VERSION = 12
+  schema.ts                   ★ 建表 SQL + 全部迁移常量（铁律一）。现到 v14
+  migrate.ts                  ★ 手写迁移器（PRAGMA user_version），CURRENT_SCHEMA_VERSION = 14
   client.ts                   单例连接、PRAGMA、runInTransaction
   seed.ts                     首次启动：player 1 行 + settings 1 行
-  repo/{player,settings,tasks,checkins,goals,streak,reviews}.ts   单表读写
+  repo/{player,settings,tasks,checkins,goals,streak,reviews,journal}.ts   单表读写
 
 src/content/                  叙事内容（纯数据，加内容不改代码）
   stories.ts                  四季故事（24 段，累计天数解锁）
@@ -162,6 +225,10 @@ src/domain/                   纯函数
   settle.ts                   惰性日结算的纯规则
   reminder.ts                 提醒的纯规则（时刻换算、文案库、上限截断）
   review.ts                   周复盘（周键、规范化、摘要）
+  journal.ts                  ★ 日记的纯规则（规范化、空串判定、摘要，D49）
+  guide.ts                    ★ D1–D7 引导（七张卡、第几天、该不该显示）
+  spark.ts                    ★ 品牌记号的几何（SPARK_PATH / BOX / BOUNDS / CENTER，D50；六个位图与界面共用）
+  exportCard.ts               ★ 导出卡片的**内容**（纯数据，可在无手机环境验）
   monthReview.ts              月复盘（月末最后一个周六、五维变化）
   titles.ts                   称号（五维 × 三档，纯推导不存状态）
   shop.ts                     商店商品 + 合成配方 + 买完剩多少
@@ -179,7 +246,13 @@ src/services/                 编排（事务在这里）
   settle.ts                   结算接线
   streak.ts                   ★ 宽限券（惰性补）+ 修复（事务）
   review.ts / monthReview.ts  周复盘 / 月复盘取数与保存
-  weekReport.ts               周报导出（文字版；图片版待 view-shot）
+  journal.ts                  ★ 日记取数与保存（「今天」走 effectiveToday，D49）
+  weekReport.ts               周报导出（文字版 + buildWeekCard 给图片版）
+  maintenance.ts              ★ 日常维护：结算 → 宽限券 → 月度奖励 + 提示队列
+  guide.ts                    ★ D1–D7 的锚点（老库补 guide_start_date）
+  exportImage.tsx             ★ 截图 + 分享（离屏挂载 → captureRef → 1080px PNG）
+  journal.ts                   ★ 日记视图：业务日 + 今天 + 历史（D49）
+  exportCards.ts              月报卡 / 复盘卡 / 时间线混排
   shop.ts                     购买 / 合成（事务）
   narrative.ts                叙事取数 + 月度奖励发放 + 关键节点
   errorLog.ts                 ★ 本地错误日志（同步、绝不抛错、不记用户内容）
@@ -190,10 +263,23 @@ src/services/                 编排（事务在这里）
 src/components/               Card（全 App 唯一的「框」）、TodoCard、TodoCheckbox、
                               TaskRow、HearthBar、AwardFloat、AddButton、QuickStart、
                               StatBarList、SettingsRow、PlayerAvatar、AvatarPickerSheet、
-                              DueDateField、TabBarIcon、StageNote、EmberMeter、StreakRepairCard
+                              DueDateField、TabBarIcon、StageNote、EmberMeter、StreakRepairCard、
+                              ExportCardView（导出卡片版式）、GuideCardView（D1–D7 卡片）、
+                              useGuideCard（哪一页负责第几天）、SparkMark（品牌记号，D50）
 
 src/theme/tokens.ts           ★ 全项目唯一允许出现十六进制色值的地方（四套色板）
 src/theme/ThemeProvider.tsx   theme + themeId + reduceMotion + 行高按字号重算
+
+scripts/make-logo.ts          ★ 由 SPARK_PATH 生成 6 个位图（无头 Chrome 光栅化，D50）
+assets/                       icon / android 三件套 / splash / favicon + logo-spark.svg
+                              （**全部是生成物**，改形状只改 spark.ts 再重跑脚本）
+
+site/                        落地页（GitHub Pages 的站点本体，无构建步骤）
+  index.html                 页面 + 顶部一段 window.EMBER_SITE 配置（**只改这里**）
+  style.css                  配色取自 src/theme/tokens.ts；不加载任何外部资源
+  app.js                     可点的火带演示（点圈 / 长按撤销，逻辑照抄 App）
+  README.md                  上线步骤、出包后要改什么、三条约束、自查命令
+.github/workflows/pages.yml  把 site/ 原样发布到 Pages（不用 /docs 方案）
 ```
 
 **界面代码里出现 `#2564CF` 这样的字面值就是 bug**——一律读 token。
@@ -209,69 +295,64 @@ src/theme/ThemeProvider.tsx   theme + themeId + reduceMotion + 行高按字号�
 | 0 | 项目初始化、EAS 配置、包名 `com.emberhabit.app` | — |
 | 1 | 全部 13 条（打卡闭环、撤销、新建任务、目标页、导出、连胜展示、To Do 改版…） | D21 D22 D27 D29 D30 |
 | 2-1/2 | 本地通知 + 20 条文案库 | **D36** |
+| 2-3 | 连胜修复 + 宽限券（`streak_bridges` 表） | **D38** |
 | 2-4 | 打卡反馈升级（飘字 + 里程碑 3/7/30/100） | D34 |
 | 2-5 | 统计页（横条，不报完成率） | D33 |
 | 2-6 | 备份导入 + 导入前快照 | D32 |
-| 2-7 | 启动时补结算 | — |
+| 2-7 | 启动时补结算（**2026-10-27 起改成「冷启动 + 回到前台」两条路**） | **D44** |
 | 2-8 | 外观走查（行高跟字号缩放、`reduce_motion` 可点、固定尺寸截断） | **D37** |
-| 2-3 | 连胜修复 + 宽限券（`streak_bridges` 表） | **D38** |
 | 3-1 | 目标层 | — |
 | 3-2 | 周复盘（三个固定问题、跳过不惩罚、周日提醒） | D42 |
 | 3-3 | 月复盘（月末最后一个周六、只做「看」） | D42 |
-| 3-4 | 周报导出（**文字版**，图片版未做） | **D39** |
+| 3-4 | 周报导出（**文字版 + 图片版**） | **D39 → D43** |
 | 4-1 | 主题四套（白 / 夜航 / 苔原 / 晨光） | **D40** |
+| 4-2 | 复盘卡（版式 + 图片导出） | **D43** |
 | 4-3/4 | 称号（15 个）+ 称号图鉴 | D41 |
 | 4-5/6 | 商店（只卖材料）+ 材料合成（3:1 固定） | D41 |
 | 4-7 | 今日发现（40 条，种子化） | D41 |
 | 5-1 | 月度活动（12 个月，奖励自动发） | D42 |
 | 5-2 | 四季叙事（24 段，累计天数解锁） | D42 |
 | 5-3 | 单人 Boss（血量 60，无死亡无惩罚） | D42 |
-| 5-4 | 回忆系统（关键节点，**部分**：2 个节点） | D42 |
+| 5-4 | 关键节点（**部分**：2 个节点，显示在日记页） | D42 / D49 |
 | 5-6 | 本地规则引擎（温柔复盘 + 任务拆解） | D42 |
+| 6-2 | 落地页（GitHub Pages，可点的火带演示） | **D46** |
 | 6-5 | 隐私说明页 | D42 |
 | 6-6 | 首次启动引导（三屏） | D42 |
+| 6-7 | D1–D7 引导（七张卡 + 锚点，迁移 v12→v13） | **D45** |
 | 6-8 | 本地错误日志（不记用户内容） | D42 |
-| 6-9 | 数据迁移机制（`user_version`，现到 **v12**） | D31 |
+| 6-9 | 数据迁移机制（`user_version`，现到 **v13**） | D31 |
 
 ### 没做（按建议顺序）
 
-**① 图片导出（周报 + 回忆卡）** —— 两处都被同一个障碍挡住（D39）。
+**① 真机手测 —— 唯一的 P0。** 见 §8。
 
-```bash
-npx expo install react-native-view-shot
-```
+这一轮新增的三件事**都只在真机上才能验**：
+- `react-native-view-shot` 的原生模块是否真的链上了（`expo export` 通过不代表它链上了）；
+- 导出卡片的中文有没有截断（验收标准就是这一条）；
+- 回到前台补维护 + 提示队列的实际观感（三句话排队说完会不会太长）。
 
-装上之后只需改两个地方：
-- `src/services/weekReport.ts` 的 `exportWeekReportAsImage()`（形状已定好，注释里写了四步）；
-- 回忆卡版式（目前回忆页列的是周复盘与月复盘的文字，没有卡片版式）。
+**② 商店截图（阶段 6 第 3 条）** —— 就是截图本身，没有设备就做不了。
+落地页现在用一个**可点的演示**代替截图（D46），这比假图诚实，但真实截图仍然缺。
 
-**关键：验收标准里的「中文不截断」** —— 给它一个固定的 1080 宽布局，不要用屏幕宽。
-
-**② 内容模板化（阶段 5 第 5 条）** —— 5 地点 × 4 情绪 × 5 属性 × 4 季节 × 3 结果。
+**③ 内容模板化（阶段 5 第 5 条）** —— 5 地点 × 4 情绪 × 5 属性 × 4 季节 × 3 结果。
 
 **没做的原因不是时间**：那套槽位系统是给「探索事件」用的，而探索事件
 在当前产品里没有落点（没有「今天遇到什么」的界面）。
 手写 40 条文案的额度已经用在「今日发现」上了（`domain/discovery.ts`）。
 **要接的话先想清楚探索事件在哪个界面出现**，否则就是编一套没有消费者的系统。
 
-**③ D1–D7 引导脚本（阶段 6 第 7 条）** —— 需要一套「第几天显示哪张卡」的状态。
+**④ D4 的「最小版本」功能** —— D1–D7 里其余六张都做完了，只有第 4 天那张
+原本要求「给我的习惯设一个最小版本」。它需要 `tasks.min_title` 一列 + 一条迁移 +
+新建/编辑界面 + 备份白名单，而它服务的需求（状态不好时做少一点）现在可以用
+难度与「只记一件」覆盖。所以 D4 只写一句关于难度的事实、**没有按钮**（D45）。
+不做一个点了会跳到不存在功能的入口。
 
-当前没有存「用户第一次打开是哪天」的列。可以推（第一条 checkin 的日期），
-但这一版没做。它是一个**真机才能调**的东西（卡片出现的时机、不遮挡内容、不重复）。
+**⑤ 图鉴的另两类** —— 称号图鉴已完成；材料与复盘两类没做，
+因为材料只有两种（普通/精炼），单独开一页没有信息量（D41）。
 
-**④ 落地页 + 商店截图（阶段 6 第 2、3 条）** —— **没有设备就做不了**。
-
-落地页需要真实截图，商店截图就是截图本身。
-
-**⑤ 真机手测** —— 见 §8。这是唯一的 P0。
-
-**④ 阶段 4（7 条全未开始）**：主题做回来（D27 挪到了这一阶段：`ThemeId` 加取值 → 一条扩 CHECK 的迁移 → `buildPalette` → 恢复 `ThemeProvider` 的 themeId 与选择页）、回忆卡、称号、图鉴、商店、材料合成、今日发现。
-
-**⑤ 阶段 5（6 条全未开始）**：月度小活动、四季叙事、单人 Boss、回忆系统、内容模板化（先 40 条）、本地规则引擎。
-
-**⑥ 阶段 6（部分）**：EAS 已配（`eas.json` preview 档出 apk）、图标/启动图已有；落地页、商店截图、隐私政策页、首次启动引导（90 秒拿到第一个奖励）、D1–D7 引导脚本、本地错误日志导出，仍未做。
-
-**⑦ 真机手测**——这件事一件都没做过，见 §8。
+**⑥ EAS 实际出包** —— `eas.json` 已配好 preview 档（`buildType: apk`），
+但还没真的跑过一次 `eas build`。原因不再是环境坏（`bash` 已修），
+而是「等代码稳定到值得打一个版本再打」。出包之后落地页的下载按钮才会亮（D46）。
 
 ---
 
@@ -284,24 +365,39 @@ npx expo install react-native-view-shot
 | `src/db/schema.ts` 的 `theme_id` / `theme_mode` | 死列，没人读写 | D27：主题收成一套白底，但列已发布不能删。主题回来时接上 |
 | `player.avatar_seed` / `avatar_data` / `avatar_updated_at` | 死列，`avatar_data` 在 v6→v7 被清空 | D35：头像换成 `avatar_id`（七个像素动物）。**清空用户照片是全 App 唯一一次删用户数据**，不可逆，理由写在迁移注释里 |
 | `src/domain/streak.ts` 的 `advanceStreak` / `StreakState` | **已删除**（2026-10-26，D38） | 它的场景已被「现算 + 桥接日」取代。原来留着是因为「宽限券如果走加列那条路会用到」——现在确定了不走那条路 |
-| `app/_layout.tsx` 的 TODO（时区变更检测） | 未做 | 通知排期那边已经用 `settings.last_time_zone` 处理了（`maintainRemindersOnLaunch`），这个 TODO 是上一版的残留 |
-| `src/services/settle.ts` 注释里的「AppState 监听没做」 | 仍然没做 | 只有提醒页自己监听了 AppState。**切回前台不补结算**是一个真实的缺口 |
+| ~~`app/_layout.tsx` 的 TODO（时区变更检测）~~ | **已删**（2026-10-27） | 核实过：业务日完全由 `day_start_hour` + 本地时间算出，时区一变本地时间自然就变；真正要用时区的通知排期那边已经用 `settings.last_time_zone` 自己处理。留着这条 TODO 只会让下一个接手的人去查一个不存在的问题 |
+| ~~`src/services/settle.ts` 注释里的「AppState 监听没做」~~ | **已做**（2026-10-27，D44） | 切回前台不补结算是一个**真实的缺口**（隔夜切回来时撤销保护会放行昨天的记录）。现在 `app/_layout.tsx` 有一个 `AppState` 监听，回到 `active` 就跑 `runDailyMaintenance()` |
 | `max_per_day > 1` | 未支持，服务层按 0/1 处理 | docs/05 明确不做 |
 | reward 任务的撤销 | 返回 `UNSUPPORTED` | 界面不产生这类记录 |
 | `advanceStreak` 里的宽限券 | **已删除**，宽限券改在 `services/streak.ts` | 见上面第 3 条与 D38 |
 | `streak_bridges` 没有外键到 tasks | 有意 | 桥接的是「这个人这一天」，不是「某个习惯这一天」——与「我的」页的整体连胜同一口径。不加外键也意味着删掉一个习惯不会连带删桥接，于是「累计」永不因删除而变小 |
-| 宽限券的 message 没人显示 | `applyGraceIfNeeded()` 返回了话，但根布局没界面 | 待接到首页（与 `settleUpTo()` 的 message 同一个待办） |
+| ~~宽限券的 message 没人显示~~ | **已接**（2026-10-27，D44） | `services/maintenance.ts` 把结算 / 宽限券 / 月度奖励三句话排成队列，首页订阅后逐条显示（每句 2.5 秒，不互相盖掉）。**队列是进程级的**：App 被杀掉后攒着的句子会丢——那些话本来也是「这一次打开时发生了什么」，丢了不亏 |
 | `theme` 不再是模块级常量 | `ThemeProvider` 按 `fontScale` 重新构造一份（D37） | 行高必须跟字号一起缩放，否则 1.5 倍时每一页都裁字。**不要把 `theme` 当作模块级的缓存键**（比如 `Map` 的 key），字号一变它就换新对象 |
 | `theme.typography.size` 仍是常数 | 不按字号重算 | `fontSize` 交给 RN 自己缩（这才是「跟随系统字号」）；只有 `lineHeight` 需要我们在代码里补 |
 | `＋` `✓` `‹ ›` 三处 `allowFontScaling={false}` | 不跟系统字号缩放 | 它们是**图标**，不是正文；它们坐在固定尺寸的格子里，一缩就溢出。别当成偷懒改回来 |
-| `src/domain/backup.ts` 的 `sinceSchemaVersion` | 只有 `streak_bridges` 用了它 | 让 v8 之前的旧备份仍能导入（缺表按空表处理）。**以后再加表也要带上它**，否则用户手里的旧备份会全部失效 |
+| `.npmrc` 的 `legacy-peer-deps=true` | **不能删** | D47：npm 会把 `expo-router` 的 optional peer 装到顶层，其中 `react-dom` 会让开发服务器报 `ErrorBoundary of undefined`。这个文件看着像「不想管 peer 冲突的偷懒」，实际是**唯一**挡住那五个包的东西 |
+| 没有 `babel.config.js` | 有意（D3：少一层配置卡点） | 但这是一个**真实约束**：任何要求注册 babel 插件的库都不能装。`reanimated` / `worklets` 就是两个例子——它们的插件没注册时不会报「缺插件」，只会让 hook 调度错位（D47）。装新库之前先问一句「它要不要 babel 插件」 |
+| `src/domain/backup.ts` 的 `sinceSchemaVersion` | `streak_bridges`(8) / `reviews`(9) / `month_reviews`(10) 用了它 | 让旧备份仍能导入（缺表按空表处理）。**以后再加表也要带上它**，否则用户手里的旧备份会全部失效。加**列**不需要它（列缺失时导入端写 NULL / 默认值），但**必须**同步进 `BACKUP_TABLES`（铁律二）——`guide_start_date` 就是照这条加的 |
+| `player.guide_start_date` 可能为 NULL | 老库从 v12 升上来时是 NULL | D45：迁移只改结构、不填日期（填日期是业务判断）。`services/guide.ts` 第一次读时补成「今天」，**不要在界面里自己判断 NULL** |
+| 「今天已经展示过第几张引导卡」不存库 | 模块级变量（`components/useGuideCard.ts`） | D45：多一列就多一条迁移 + 一处备份白名单，换来的只是同一天重开 App 不再看到那张卡。**App 被杀掉后重看一次同一张卡是可接受的** |
+| 导出卡片的字号不跟系统字号缩放 | `ExportCardView` 全部 `allowFontScaling={false}`，按 540dp 定死 | D43：卡片是**印刷品**，收到图片的人不缩放。与 D37（界面跟随系统字号）不冲突，两者服务的是不同的人。**别当成漏改** |
+| `assets/*.png` 是**生成物**，不是手绘 | 由 `scripts/make-logo.ts` 从 `src/domain/spark.ts` 的 `SPARK_PATH` 光栅化而来 | D50：同一件事原来画了三遍（图标 Λ / 底栏火苗 / 落地页火苗），改一次要改三处且必然漏一处。**改形状只改 `spark.ts`，然后 `npx tsx scripts/make-logo.ts` 重跑**——手工改 PNG 会在下一次重跑时被覆盖 | 那个脚本依赖本机装了 Chrome 或 Edge（用 `--headless --screenshot` 光栅化，不引 sharp/resvg）；换机器时若两个都没有，改形状就得多装一个浏览器 |
+| 底栏「今天」的火苗**没有**跟着换成火花 | 它是**图标**（描边、24 网格、23–28px，与另外三个同一套画法），而记号是**实心图形** | D50：两者职责不同（图标说「这一页叫什么」，记号说「这是谁」）。混用会让底栏四个图标里有一个不是描边的，那是明显的破绽。**别当成漏改** |
+| `assets/splash-icon.png` 已生成但**没接进 `app.json`** | 项目里没有 `expo-splash-screen`，`app.json` 也没有它的插件配置 | D50：接启动图 = 多一个原生模块，而它只在冷启动那一两秒可见。等真机手测之后再说（DECISIONS 的「待定」表里有这一条） |
+| `site/` 里的演示是另一份实现 | HTML/CSS/JS 重写了一遍火带与打卡逻辑 | D46：真机截图拿不到时，一个能点的演示比一张假图诚实。代价是它可能与 App 漂移，所以 `site-test` 有断言盯着关键行为（不划删除线、只有两个动画、尊重 reduce-motion、第一个模板是「喝一杯水」、配色等于 token） |
+| 状态页的属性 LV 是 `points + 1` | 不是人升那种独立属性经验曲线 | D48：人升每条属性有自己的升级门槛（2500 经验一级），Ember 是固定 200 一点。同一点数在两边显示的 LV 不一样高，**这是口径差异不是 bug**。要改成「每维独立曲线」就得加列 + 迁移 + 备份白名单，而 D7 说属性纯展示——不值得 |
+| 五维从「我的」页搬到了「状态」页 | `app/(tabs)/me.tsx` 不再画五维与经验条 | D48：用户原话是「把五维删除」，落地成**搬家**。数据、`checkins.attr_key`、15 个称号、猜属性规则一个都没动。**别把「我的」页的五维入口删掉**——那是从「我是谁」走到「我长成什么样」的下一步 |
+| `app/(tabs)/goals.tsx` → `app/goals/index.tsx` | 目标是二级页，入口在「我的」页 | D48：路由字符串 `/goals`、`/goals/new`、`/goals/xxx` **全部没变**，所以 `router.replace('/goals')` 之类的调用不需要改。变的是它不再有底栏、需要自己的返回按钮（兜底 `/me`） |
+| `journal_entries` 的 `sinceSchemaVersion: 14` | 旧备份里没有这张表 | D49：漏了它，用户手里的 v13 及更早备份会整份被判成 `BAD_TABLE`。`journal-status-test` 里有一条专门验这个 |
+| 文件名前缀 `memory` 没改 | `exportImage.tsx` / `exportCard.ts` 里仍是 `'memory'` | D49：它是导出图片的文件名前缀，改成 `'journal'` 会让用户手里的旧图与新图前缀不一致，收益为零。**别当成漏改** |
+| 日记一天只能一条 | `local_date` 是主键 | D49：Ember 的「今天」是唯一的（业务日）。一天写好几条会立刻引出「这几条什么关系 / 列表怎么排 / 导出取哪一条」三个问题，而答案都不会比「一天一条、想改就改」更好 |
 
 ---
 
 ## 6. 决策记录怎么用
 
 **`DECISIONS.md` 是最高优先级的产品/技术约定**，`docs/00-索引与阅读顺序.md` 里有索引表。
-现有 D1–D36（D10 已作废）。改动任何被决策钉死的东西之前，先在 `DECISIONS.md` 里追加一条新决策说明为什么改，再改代码。
+现有 D1–D47（D10 已作废）。改动任何被决策钉死的东西之前，先在 `DECISIONS.md` 里追加一条新决策说明为什么改，再改代码。
 
 几条最容易踩的：
 
@@ -309,6 +405,11 @@ npx expo install react-native-view-shot
 - **D29**：视觉语汇 = Microsoft To Do（Fluent）。灰底 `#FAF9F8` + 白卡片 + 圆角 4 + 主色 `#2564CF`。**整行不可点，只有圈可点**；待办完成用删除线，习惯不用（D13 被收窄）。
 - **D30**：「每一个任务、每一条数据都要框起来」。全 App 统一用 `components/Card`。说明性文字不框。
 - **D31**：见 §2.2 铁律一。
+- **D43**：图片导出用 `react-native-view-shot`，卡片渲染到**屏幕外**再拍；版式按 540dp 固定、导出 1080px；卡片字号**不跟系统字号缩放**（那是印刷品）。
+- **D44**：日常维护（结算 → 宽限券 → 月度奖励）收在 `services/maintenance.ts`，**冷启动与回到前台都跑**；三句话由它排队给首页。
+- **D45**：D1–D7 引导靠 `player.guide_start_date` 定「第几天」，**不用首条打卡推**；「看过第几张」不存库。
+- **D46**：落地页在 `site/`，用 Actions 发到 Pages；**不加载任何外部资源**；没有真机截图时用可点的演示代替，不用假图。
+- **D47**：`.npmrc` 里的 `legacy-peer-deps=true` **不许删**。它挡的是 `expo-router` 的五个 optional peer（`react-dom` / `reanimated` / `worklets` / `gesture-handler` / `react-native-web`），装进来会让开发服务器报 `ErrorBoundary of undefined`，而所有自动化检查都发现不了。
 - **D36**：提醒用**一次性 DATE 触发器预排 7 天**，不用系统的每日重复触发器（后者不知道自己该停）；权限在用户第一次打开某条提醒时才问；通知无声、不弹横幅、不带角标。
 
 ---
@@ -331,7 +432,7 @@ ESB="C:/Users/16907/AppData/Local/npm-cache/_npx/beb367dfa21eb3f5/node_modules/.
 EMBER_TMP=$(mktemp -d) node xxx-test.js
 ```
 
-现成的 8 个套件（共 193 项断言，`run-all.sh` 一次跑完）：
+现成的 **14 个套件**（共 **414 项**断言，`run-all.sh` 一次跑完）：
 
 | 套件 | 项数 | 覆盖 |
 | --- | --- | --- |
@@ -343,16 +444,30 @@ EMBER_TMP=$(mktemp -d) node xxx-test.js
 | `stats-test` | 32 | 统计页取数与计算 |
 | `reminders-test` | 81 | 时刻换算、排期过滤、上限截断、文案库 |
 | `migrate6-test` | 11 | v5→v6 迁移（加列不替用户开提醒） |
+| `maintenance-test` | 15 | 日常维护的顺序、提示队列（冷启动攒话 / 在线直达 / 去重）、文案过禁用词表 |
+| `exportcard-test` | 30 | 导出卡片的**内容**：事实行、空记录不写 0、quote 去空白、文件名合法化、页脚 |
+| `site-test` | 31 | 落地页：不加载外部资源、禁用词、配色等于 token、未出包时不出死链、演示行为、**顶栏与 favicon 的记号必须等于 `SPARK_PATH`**（D50） |
+| `guide-test` | 42 | D1–D7：第几天（含跨月/跨年/闰年）、该不该显示、锚点补齐与幂等、迁移 v13、备份往返 |
+| `deps-test` | 7 | 挡 `expo-router` 的 optional peer 与 babel 插件依赖（D47） |
+| `journal-status-test` | 96 | 日记（D49）：迁移 v14、备份白名单、旧备份放行、纯函数边界、读写与清空、**导出→导入往返**；状态页的 LV 口径（`points+1`、`points×200+xp`）；新文案过禁用词表 |
 
-**新加断言时注意两件事：**
+**新加断言时注意三件事：**
 1. 不要拿 `SCHEMA_SQL_V1` 去「造一个旧版本的库」——那个常量会随工作变化，测试会绑在一个移动的目标上（`migrate6-test.ts` 里有正确写法）。
-2. 加了新列，一定要加一条**导出→导入往返**断言（见 §2.2 铁律二）。
+2. 加了新列，一定要加一条**导出→导入往返**断言（见 §2.2 铁律二）。`guide-test` 里有一个可直接抄的例子。
+3. 断言里**不要写死会随工作增长的数字**。`e2e` 曾经写死「导出了 5 张表」，
+   后来表变成 8 张，它就成了一条假失败——正确写法是与 `BACKUP_TABLES.length` 联动。
 
 ---
 
 ## 8. 最大的缺口：真机手测
 
-**至今没有在手机上点过一次。** 阶段 1、阶段 2 的 settle / 导出 / 导入 / 统计 / 提醒、To Do 改版、通知页——全部只有逻辑层验证。
+**至今没有在手机上点过一次。** 阶段 1–6 的 settle / 导出 / 导入 / 统计 / 提醒 / 图片导出 /
+引导卡 / 回前台补维护——全部只有逻辑层验证。
+
+**这一轮新增的三个点尤其只能在真机上验：**
+- `react-native-view-shot` 的原生模块是否真的链上了（`expo export` 通过**不代表**它链上了）；
+- 导出卡片的中文有没有截断（这正是阶段 3 的验收标准）；
+- 三句话排队显示的实际观感（每句 2.5 秒，会不会太长）。
 
 接手后如果只能做一件事，做这个：
 
@@ -371,13 +486,73 @@ npx expo start          # 用 Expo Go 扫码
 - 设置 → 备份：导出 → 改点数据 → 导入 → 「回到导入前」
 - 系统字体放大到 1.5 倍，把每一页扫一遍看截断
 
+**2026-10-26 新增的（D48 / D49），按重要性排：**
+
+0. **底栏与两个新页**
+   - 冷启动 → 底栏是 **今天 / 状态 / 日记 / 我的**，四个字不挤；1.5 倍字号下再看一次
+   - 「状态」页：五行的 `LV` 与 `余量 / 200` **与打卡后「我的」页原来的点数对得上**
+     （`LV = points + 1`，`余量` 是不满 200 的余数）；顶部人生等级与「我的」页 `Lv.N` 一致
+   - 「我的」→「目标」→ 新建 / 挂任务 / 进度 → 返回**回到「我的」**（不是回到状态页）
+   - 「日记」页 → 今天写一句 → **杀进程重开，文字还在** → 切 tab 再回来不重复
+   - 「日记」页 → 点历史里的一天 → 编辑框换成那一天 → 「回到今天」能回来
+   - 复盘页 / 叙事页 / 规则引擎页按返回 → **回到日记 tab**（不是空白/报错）
+   - 日记 → 全删再存 → 那一天从历史里消失（等于没写）
+
+**这一轮新增的，必须补上（按重要性排）：**
+
+1. **图片导出**（`react-native-view-shot` 是原生模块，Expo Go 里不一定有）
+   - 周复盘页 →「存成图片」→ 分享面板出来 → 存下来看一眼**中文有没有被切掉**
+   - 月复盘页 →「存成图片」同上
+   - 日记页 → 任意一张卡 →「存成图片」
+   - 如果点了没反应或报「没能生成图片」，先确认用的是 **development build / apk** 而不是 Expo Go
+     （Expo Go 只带它自己内置的原生模块）
+2. **回前台补维护**（D44）
+   - 打开 App → 按 Home 键 → 把系统日期往后拨一天 → 切回 App
+   - 期望：首页刷新成新的一天，并且**说出**「昨天空了一天」或「中间空了一阵子」那一句
+   - 期望：如果昨天有打卡，撤销保护**不再**放行昨天那条记录
+3. **D1–D7 引导卡**（D45）
+   - 清数据重装 → 走完三屏 → 今天页底部应出现「第 1 天」那张卡
+   - 点「知道了」→ 它消失，且切到别的 tab 再回来**不再出现**
+   - 把系统日期往后拨 2 天 → 今天页应出现「第 3 天」那张？不——**第 3 天在目标页**
+     （分工：今天页 1/2/4/6/7，目标页 3，我的页 5）。这条最值得真机确认，因为它是静态分工
+   - **第 3 天那张要进「我的 → 目标」才看得到**（D48 把目标降为二级页）
+   - **第 5 天那张的按钮要跳到「状态」页**（D48），不是「我的」页
+   - 拨到第 8 天 → 所有引导卡都不再出现
+4. **落地页**（`site/`）
+   - `cd site && python -m http.server 8080` → 浏览器打开 → 点圆圈、长按行
+   - 手机上打开同一个地址，确认窄屏不错位（已在 420×940 下验过一次）
+   - **顶栏那个记号要是火花**（四条不对称的臂），不是旧的火苗或「Λ」；标签页图标是暗蓝方块 + 纸白火花
+5. **品牌记号**（D50，2026-10-27 新增）
+   - 桌面图标 / 最近任务 / 通知栏那枚小图标**都是火花**，且**三处长得一样**
+   - 通知栏那枚在**黑底上**还认得出（它是单色图标，系统会染色）
+   - 进「设置 → 你的数据在哪儿」：标题右侧一个火花、页脚「火花 + Ember 0.0.1」，
+     版本号与桌面图标长按「应用信息」里看到的一致
+   - 系统字号调到 1.5 倍再看这一页：标题与火花**不能重叠**，页脚那行不能裁字
+
 ---
 
 ## 9. 提交状态
 
-**63 个文件未提交**，用户没有要求 commit。分支是 `master`，主分支是 `main`。
+**未提交**，用户没有要求 commit。分支是 `master`，主分支是 `main`。
+
+上一轮已经提交过一次（`4250788 实现阶段 2–6…`），所以这次的 diff 是**从那次之后的所有改动**：
+D37–D50、9 个 tsc 错误的修复、`react-native-view-shot` 依赖、迁移 v12→v13→v14、`site/` 与工作流、品牌记号。
+
+**D50 这一轮的具体文件变动**：
+- **新增**：`src/domain/spark.ts`、`src/components/SparkMark.tsx`、`scripts/make-logo.ts`、`assets/logo-spark.svg`
+- **重新生成**：`assets/` 六个 PNG（`icon` / android 三件套 / `splash-icon` / `favicon`）——旧的是「Λ」形图标
+- **改动**：`app/privacy.tsx`（接 SparkMark + 版本号署名）、`site/index.html`（顶栏与 favicon 换成 SPARK_PATH）、
+  `site/style.css`（`.brand-mark` 从描边改实心）、`DECISIONS.md`（D50 + 待定表加「启动图」）、
+  `docs/00` / `docs/03` / `README.md` / `HANDOFF.md`
+- **删除**：仓库根目录三个 GitHub API 抓包残留（`go5-base.json` / `kt-1016.json` / `npj-hist.json`）与 `.tmp-logo/`（探索用的中间文件）
+
+上一轮（D48/D49）的具体文件变动：
+- **新增**：`app/(tabs)/status.tsx`、`app/(tabs)/journal.tsx`、`app/goals/index.tsx`、`src/db/repo/journal.ts`、`src/domain/journal.ts`、`src/services/journal.ts`
+- **删除**：`app/(tabs)/memories.tsx`、`app/(tabs)/goals.tsx`（内容搬去上面两个新文件）
+- **改动**：`app/(tabs)/_layout.tsx`、`app/(tabs)/me.tsx`、`src/components/TabBarIcon.tsx`、`scripts/preview-tab-icons.ts`、`src/domain/guide.ts`、`src/components/useGuideCard.ts`、`src/db/schema.ts`、`src/db/migrate.ts`、`src/domain/backup.ts`、`src/services/backup.ts`、`src/services/backup-import.ts`、四处 `router.replace('/memories')`、`DECISIONS.md`、`README.md`、`HANDOFF.md`
+
 `@jasperdai__ember.jks` / `.bak.jks` 被 `.gitignore` 排除（`*.jks`），不会被误提交。
-`dist/` 与 `.expo/` 也在 .gitignore 里。
+`dist/` 与 `.expo/` 也在 .gitignore 里。**`site/` 不在 .gitignore 里**——它是要发布的东西。
 
 ---
 

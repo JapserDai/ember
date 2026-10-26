@@ -6,6 +6,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Card } from '../../src/components/Card';
 import { MONTH_NOTE_MAX } from '../../src/domain/monthReview';
 import { getMonthReviewView, saveMonthReview, type MonthReviewView } from '../../src/services/monthReview';
+import { useExportCard } from '../../src/services/exportImage';
+import { buildMonthCard } from '../../src/services/exportCards';
 import { useTheme } from '../../src/theme/ThemeProvider';
 
 /**
@@ -39,6 +41,11 @@ export default function MonthReviewScreen() {
   const [error, setError] = useState(false);
   const [savedOnce, setSavedOnce] = useState(false);
 
+  /** 导出这一月的卡片。`host` 要渲染在本页，否则离屏节点不存在 */
+  const { exportAndShare, host: exportHost } = useExportCard();
+  const [exporting, setExporting] = useState(false);
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
+
   const refresh = useCallback(() => {
     try {
       const next = getMonthReviewView();
@@ -59,7 +66,7 @@ export default function MonthReviewScreen() {
 
   const handleBack = () => {
     if (router.canGoBack()) router.back();
-    else router.replace('/memories');
+    else router.replace('/journal');
   };
 
   const handleSave = () => {
@@ -359,9 +366,83 @@ export default function MonthReviewScreen() {
             >
               这一句可以空着。空着就是这一个月不写，不会留一条空白记录。
             </Text>
+
+            {/*
+             * 存成图片。与周报同一条路（services/exportImage），
+             * 只是内容换成这张月报卡。放在保存按钮下面：先存下来，再分享。
+             */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="把这个月存成图片"
+              accessibilityState={{ disabled: exporting }}
+              onPress={() => {
+                if (exporting) return;
+                setExporting(true);
+                setExportNotice(null);
+                void (async () => {
+                  try {
+                    // 先把当前输入存下来，否则卡上是上次保存的版本
+                    if (view.monthKey) saveMonthReview(view.monthKey, note);
+                    const { card, monthKey } = buildMonthCard();
+                    const result = await exportAndShare({
+                      data: card,
+                      prefix: 'month',
+                      key: monthKey ?? 'current',
+                    });
+                    setExportNotice(result.message);
+                  } catch (err) {
+                    console.warn('[Ember] 导出月报图失败', err);
+                    setExportNotice('这张卡没能生成，稍后再试一次。');
+                  } finally {
+                    setExporting(false);
+                  }
+                })();
+              }}
+              disabled={exporting}
+              style={({ pressed }) => ({
+                marginTop: theme.spacing.md,
+                minHeight: 52,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: theme.radius.button,
+                borderWidth: 1,
+                borderColor: palette.primary,
+                opacity: exporting ? 0.5 : pressed ? 0.6 : 1,
+              })}
+            >
+              <Text
+                style={{
+                  fontSize: theme.typography.size.body,
+                  lineHeight: theme.typography.lineHeight.body,
+                  fontWeight: theme.typography.weight.medium,
+                  color: palette.primary,
+                  fontFamily: theme.typography.fontFamily.body,
+                }}
+              >
+                {exporting ? '正在生成…' : '存成图片'}
+              </Text>
+            </Pressable>
+
+            {exportNotice ? (
+              <Text
+                accessibilityRole="alert"
+                style={{
+                  marginTop: theme.spacing.md,
+                  fontSize: theme.typography.size.caption,
+                  lineHeight: theme.typography.lineHeight.body,
+                  color: palette.textMuted,
+                  fontFamily: theme.typography.fontFamily.body,
+                }}
+              >
+                {exportNotice}
+              </Text>
+            ) : null}
           </View>
         </>
       ) : null}
+
+      {/* 离屏导出卡片的挂载点。必须在本页，且不占版面 */}
+      {exportHost}
     </ScrollView>
   );
 }

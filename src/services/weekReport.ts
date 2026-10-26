@@ -1,26 +1,21 @@
 /**
  * 周报导出（阶段 3 第 4 条）。
  *
- * ---- 为什么是文本，不是图片 ----
+ * ---- 两种形态，同一份内容 ----
  *
- * docs/05 写的是「周报可导出为图片」，而验收标准是「周报图片能正常导出
- * 且中文不截断」。做这一条时遇到一个具体障碍：图片导出要
- * `react-native-view-shot`，而它**没有装**，装它要跑
- * `npx expo install react-native-view-shot`。
+ * 1. **文本版**（`exportWeekReport`）：`.txt` 走 `expo-sharing`。
+ *    零截图、零依赖失败点，微信/备忘录/邮件都能收。
+ * 2. **图片版**（`buildWeekCard` + `services/exportImage.tsx`）：卡片渲染成离屏节点，
+ *    `react-native-view-shot` 拍成 1080 宽的 PNG（D39 的第二步，已装）。
+ *    图的优势是发朋友圈/截图转发，文字的优势是所有地方都能读。
  *
- * 这个决定分两步走（D39）：
- *
- *   1. **现在做文本版。** 用已经装着的 `expo-sharing` 把周报当纯文本分享出去
- *      （微信、备忘录、邮件都能收）。零新依赖、零新权限，
- *      而「把这周小结发给自己」这件事本身已经成立。
- *   2. **图片版等那一条 install。** 代码里已经留好 `exportWeekReportAsImage`
- *      的形状，装上包之后只需要把渲染与截图补上，不用改调用方。
+ * 两版说的是**同一句话**：`buildWeekReportText` 与 `buildWeekCard`
+ * 都从 `getReviewView()` 拿同一份数据，不各自算一遍。
  *
  * ---- 为什么不做「先渲染成 SVG 再存文件」这类绕路 ----
  *
  * 试过在脑子里绕过依赖：把周报画成 SVG 字符串、写成 .svg 文件分享出去。
  * 但多数聊天软件不接受 .svg，用户拿到一个打不开的文件比拿到一段文字更糟。
- * 文字在**所有**能接收分享的地方都能读——这是它比图片更稳的地方。
  *
  * ---- 文本版长什么样 ----
  *
@@ -41,6 +36,7 @@ import { File, Paths } from 'expo-file-system';
 
 import { getSettings } from '../db/repo/settings';
 import { effectiveToday } from '../domain/date';
+import { CARD_FOOTER, quoteBlock, weekFactLines, type ExportCardData } from '../domain/exportCard';
 import {
   REVIEW_QUESTIONS,
   formatWeekRange,
@@ -190,24 +186,54 @@ export async function exportWeekReport(nowMs: number = Date.now()): Promise<Week
 }
 
 /**
- * 图片版周报 —— **尚未实现，等一条 install**（D39）。
+ * 图片版周报 —— 拍一张卡片（D39 第二步）。
  *
- * 形状先定下来，这样装上 `react-native-view-shot` 之后只需要改这里，
- * 界面那边调用 `exportWeekReport()` 的地方不用动。
- *
- * 实现时要做的事（写在这里免得下次重新想）：
- *   1. 在周报页外面包一层 `ViewShot`，ref 拿住它；
- *   2. `captureRef` 出 PNG，写到缓存目录；
- *   3. 走 `Sharing.shareAsync`，mimeType 改成 `image/png`；
- *   4. **中文不截断**的关键是给容器足够宽度（导出时用一个固定的 1080 宽布局，
- *      而不是屏幕宽），因为验收标准就是这一条。
- *
- * 为什么现在不写一个「假装能用」的版本：一个点了没反应的按钮比没有按钮更糟。
+ * 早期这里是一个「还没做」的壳。现在 `react-native-view-shot` 已装，
+ * 真正的截图动作在 `services/exportImage.tsx`（离屏挂载 → captureRef → 分享）。
+ * 这里只负责把数据拼成卡片内容。
  */
-export async function exportWeekReportAsImage(): Promise<WeekReportExportResult> {
+export function buildWeekCard(nowMs: number = Date.now()): {
+  card: ExportCardData;
+  weekKey: string;
+} {
+  const settings = getSettings();
+  const { today } = effectiveToday(
+    nowMs,
+    settings.day_start_hour,
+    settings.last_settled_date
+  );
+
+  const view = getReviewView(nowMs);
+  const weekKey = view.weekKey ?? weekKeyOf(today);
+
+  const blocks: ExportCardData['blocks'] = [];
+
+  // 数字与文字版同一口径：只在「导出的就是正在编辑的那一周」时写统计
+  if (view.weekKey === weekKey) {
+    for (const line of weekFactLines(view.stats)) {
+      blocks.push({ kind: 'fact', text: line });
+    }
+
+    for (const question of REVIEW_QUESTIONS) {
+      const block = quoteBlock(question.prompt, view.answers[question.key] ?? '');
+      if (block) blocks.push(block);
+    }
+
+    // 「还想说的」不是固定问题，但用户写了的就该出现在卡上
+    const free = quoteBlock('还想说的', view.answers.free ?? '');
+    if (free) blocks.push(free);
+  } else {
+    blocks.push({ kind: 'fact', text: '这一周没有记录。空着的周也是周。' });
+  }
+
   return {
-    ok: false,
-    message: '图片版还没做，现在可以导出文字版。',
+    weekKey,
+    card: {
+      label: '这一周',
+      title: formatWeekRange(weekKey),
+      blocks,
+      footer: CARD_FOOTER,
+    },
   };
 }
 

@@ -107,6 +107,10 @@ export const BACKUP_TABLES: readonly BackupTableSpec[] = [
       'attr_body_xp', 'attr_mind_xp', 'attr_order_xp', 'attr_spirit_xp', 'attr_bond_xp',
       'attr_body_pts', 'attr_mind_pts', 'attr_order_pts', 'attr_spirit_pts', 'attr_bond_pts',
       'ember', 'material', 'refined_material', 'last_event_reward_month',
+      // D1–D7 引导的起算日（迁移 v12→v13）。不加进来会让用户导入旧备份后
+      // 这一列变成 NULL——看上去只是「引导重新开始」，实际是锚点丢了。
+      // 旧文件里本来就没这一列，导入端把它当 NULL 处理（与 seed 后的新库同构）。
+      'guide_start_date',
       'onboarding_done',
       // avatar_seed / avatar_data / avatar_updated_at 三列从 v7 起是死列：
       // 头像改成一个 avatar_id，那三列再也没人读。它们仍留在白名单里，
@@ -218,6 +222,22 @@ export const BACKUP_TABLES: readonly BackupTableSpec[] = [
     sinceSchemaVersion: 10,
     columns: ['month_key', 'note', 'created_at', 'updated_at'],
     required: ['month_key'],
+  },
+  /*
+   * 日记（阶段 6 之后，迁移 v13→v14，D49）。
+   *
+   * 用户自己一天一天写的字。与 reviews / month_reviews 同一个道理：
+   * 这是全 App 里**只有这一份**的数据，漏进白名单等于
+   * 「导出再导入之后，用户写过的日记全部消失」，而且不报错。
+   *
+   * sinceSchemaVersion: 14 是必须的——v13 及更早的备份文件里没有这张表，
+   * 没有这个字段的话，用户手里的旧备份会整份被判成 BAD_TABLE。
+   */
+  {
+    name: 'journal_entries',
+    sinceSchemaVersion: 14,
+    columns: ['local_date', 'body', 'created_at', 'updated_at'],
+    required: ['local_date'],
   },
 ];
 

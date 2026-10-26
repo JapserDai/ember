@@ -54,7 +54,7 @@ export default function NarrativeScreen() {
 
   const handleBack = () => {
     if (router.canGoBack()) router.back();
-    else router.replace('/memories');
+    else router.replace('/journal');
   };
 
   const seasonName = view ? SEASONS.find((s) => s.id === view.season)?.name ?? '' : '';
@@ -72,7 +72,7 @@ export default function NarrativeScreen() {
       <View style={{ paddingHorizontal: theme.spacing.pageX }}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="返回回忆"
+          accessibilityLabel="返回日记"
           onPress={handleBack}
           style={({ pressed }) => ({
             minHeight: theme.touchTarget,

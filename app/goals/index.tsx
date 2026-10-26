@@ -10,10 +10,12 @@ import {
   type GoalsData,
 } from '../../src/services/goals';
 import { Card } from '../../src/components/Card';
+import { GuideCardView } from '../../src/components/GuideCardView';
+import { useGuideCard, GUIDE_HOST } from '../../src/components/useGuideCard';
 import { useTheme } from '../../src/theme/ThemeProvider';
 
 /**
- * 目标页。
+ * 目标页（D48 起从 tab 降为二级页）。
  *
  * 一个目标 = 一句话 + 一句为什么（可选）+ 一个截止日（可选）+ 若干关联任务。
  * 进度是「关联任务完成了几个 / 一共几个」，现算，不存字段。
@@ -26,6 +28,12 @@ import { useTheme } from '../../src/theme/ThemeProvider';
  *
  * 数据全部来自 SQLite（src/services/goals.ts 装配）。每次回到这一页重读一次：
  * 在「今天」打完卡切过来，「3 / 5」必须变成「4 / 5」。
+ *
+ * ---- 为什么现在要有返回按钮 ----
+ *
+ * 它以前是底栏的一个 tab（`app/(tabs)/goals.tsx`），底栏本身就是回去的路。
+ * 现在它是「我的」页里的一个入口，没有返回按钮就只能靠系统返回手势，
+ * 而手势在安卓上不是所有人都会用。入口从哪儿来，返回就往哪儿去。
  */
 
 export default function GoalsScreen() {
@@ -77,6 +85,26 @@ export default function GoalsScreen() {
 
   const goNewGoal = () => router.push('/goals/new');
 
+  /**
+   * 返回。
+   *
+   * 入口在「我的」页，所以兜底是 `/me`（与 `app/titles.tsx` 的写法一致）。
+   * 不用 `router.back()` 裸调：从通知或深链直接进来时没有上一页，
+   * 那种情况下 back 什么也不做，界面会卡在原地。
+   */
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/me');
+  }, [router]);
+
+  /**
+   * D1–D7 引导。目标页只负责第 3 天（「有些事要做很久」）。
+   *
+   * 为什么 D3 在目标页而不是今天页：这张卡说的是「目标是长期方向」，
+   * 用户正看着目标列表时读它才成立；放在今天页会变成一句没有上下文的介绍。
+   */
+  const guide = useGuideCard(GUIDE_HOST.goals);
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: palette.background }}
@@ -87,6 +115,30 @@ export default function GoalsScreen() {
       showsVerticalScrollIndicator={false}
     >
       <View style={{ paddingHorizontal: theme.spacing.pageX }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="返回"
+          onPress={handleBack}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={({ pressed }) => ({
+            alignSelf: 'flex-start',
+            minHeight: theme.touchTarget,
+            justifyContent: 'center',
+            opacity: pressed ? 0.55 : 1,
+          })}
+        >
+          <Text
+            style={{
+              fontSize: theme.typography.size.label,
+              lineHeight: theme.typography.lineHeight.label,
+              color: palette.textMuted,
+              fontFamily: theme.typography.fontFamily.body,
+            }}
+          >
+            ‹ 返回
+          </Text>
+        </Pressable>
+
         <View style={styles.titleRow}>
           <Text
             style={{
@@ -310,6 +362,17 @@ export default function GoalsScreen() {
               ))}
             </View>
           ) : null}
+        </View>
+      ) : null}
+
+      {/* D1–D7 引导卡（本页负责第 3 天） */}
+      {guide.card ? (
+        <View style={{ paddingHorizontal: theme.spacing.pageX }}>
+          <GuideCardView
+            card={guide.card}
+            onAction={guide.runAction}
+            onDismiss={guide.dismiss}
+          />
         </View>
       ) : null}
     </ScrollView>

@@ -48,6 +48,8 @@ export interface PlayerRow {
   refined_material: number;
   /** 最近一次发过月度活动奖励的月份键。NULL = 从来没发过 */
   last_event_reward_month: string | null;
+  /** D1–D7 引导的起算日（业务日 YYYY-MM-DD）。NULL = 还没定锚点（老库刚升级上来） */
+  guide_start_date: string | null;
   onboarding_done: number;
   /** 挑中的头像 id（'fox' / 'cat' / …）。长相本身是代码里的常量，库里只存这一个词 */
   avatar_id: string;
@@ -92,6 +94,14 @@ export interface PlayerSnapshot {
   refinedMaterial: number;
   /** 最近一次发过月度活动奖励的月份键 YYYY-MM。null = 从来没发过 */
   lastEventRewardMonth: string | null;
+  /**
+   * D1–D7 引导的起算日（业务日）。
+   *
+   * null 表示还没定锚点——老库刚从 v12 升上来就是这种状态。
+   * 界面**不要**自己判断 null，用 `services/guide.ts` 的 `getGuideDay()`，
+   * 它会先把锚点补成今天再算第几天。
+   */
+  guideStartDate: string | null;
   onboardingDone: boolean;
   /** 挑中的头像 id。界面把它传给 PlayerAvatar */
   avatarId: AvatarId;
@@ -114,6 +124,8 @@ export interface PlayerPatch {
   refinedMaterial?: number;
   /** 记录「哪个月的月度奖励已经发过了」。只由 narrative 服务写 */
   lastEventRewardMonth?: string | null;
+  /** D1–D7 的起算日。只由 guide 服务写（老库补锚点那一刻） */
+  guideStartDate?: string | null;
   onboardingDone?: boolean;
   /** 换头像。只存一个 id，长相是代码里的常量 */
   avatarId?: AvatarId;
@@ -131,6 +143,7 @@ const PLAYER_COLUMN_MAP: Record<keyof PlayerPatch, string> = {
   material: 'material',
   refinedMaterial: 'refined_material',
   lastEventRewardMonth: 'last_event_reward_month',
+  guideStartDate: 'guide_start_date',
   onboardingDone: 'onboarding_done',
   avatarId: 'avatar_id',
 };
@@ -151,7 +164,7 @@ export function getPlayer(): PlayerRow {
             attr_body_xp, attr_mind_xp, attr_order_xp, attr_spirit_xp, attr_bond_xp,
             attr_body_pts, attr_mind_pts, attr_order_pts, attr_spirit_pts, attr_bond_pts,
             ember, material, refined_material, last_event_reward_month,
-            onboarding_done, avatar_id, created_at, updated_at
+            guide_start_date, onboarding_done, avatar_id, created_at, updated_at
        FROM player
       LIMIT 1`
   );
@@ -190,6 +203,7 @@ export function getPlayerSnapshot(): PlayerSnapshot {
     material: row.material,
     refinedMaterial: row.refined_material,
     lastEventRewardMonth: row.last_event_reward_month,
+    guideStartDate: row.guide_start_date,
     onboardingDone: row.onboarding_done === 1,
     // 库里可能存着一个不认识的 id（手改过、或来自别的版本）。
     // 在这里就规范化成七个之一，界面拿到的永远是能画出来的东西。

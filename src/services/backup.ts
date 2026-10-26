@@ -77,6 +77,8 @@ const TABLES: ReadonlyArray<{ name: string; orderBy: string }> = [
   { name: 'reviews', orderBy: 'week_key' },
   // 月复盘（阶段 3）。同样是用户自己写的字。
   { name: 'month_reviews', orderBy: 'month_key' },
+  // 日记（D49）。一天一条，主键是业务日，所以按它排序就足够稳定。
+  { name: 'journal_entries', orderBy: 'local_date' },
 ];
 
 /**

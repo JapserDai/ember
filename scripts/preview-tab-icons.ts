@@ -1,5 +1,5 @@
 /**
- * 把底部导航的四个图标打成 ASCII 点阵，肉眼验证形状。
+ * 把底部导航的图标打成 ASCII 点阵，肉眼验证形状。
  *
  * 用法：npx tsx scripts/preview-tab-icons.ts [cols]
  *   例：npx tsx scripts/preview-tab-icons.ts 48
@@ -21,7 +21,7 @@ const STROKE_IDLE = 1.45;
 const STROKE_ACTIVE = 1.95;
 
 /**
- * 四个图标的 path 数据。
+ * 图标（含底栏外的 goals）的 path 数据。
  *
  * **必须与 TabBarIcon.tsx 里的 renderShape 逐字一致**——这个脚本的价值
  * 全在「它画的就是组件会画的东西」，一旦不同步，看出来的结果没有意义。
@@ -44,13 +44,22 @@ const ICONS: Record<string, { stroke: number; paths: string[]; circles?: Array<[
       'M4.9 19.5L9.7 19.5',
     ],
   },
-  memories: {
+  status: {
     stroke: STROKE_IDLE,
-    paths: [],
-    rects: [
-      [4.7, 4.5, 10.1, 12.4],
-      [9.2, 7.1, 10.1, 12.4],
+    paths: [
+      'M6.8 19.5L6.8 14.2',
+      'M12 19.5L12 9.6',
+      'M17.2 19.5L17.2 4.9',
     ],
+  },
+  journal: {
+    stroke: STROKE_IDLE,
+    paths: [
+      'M8.4 4.4L8.4 19.6',
+      'M11.2 9.4L16.2 9.4',
+      'M11.2 13.2L14.6 13.2',
+    ],
+    rects: [[4.6, 4.4, 14.8, 15.2]],
   },
   me: {
     stroke: STROKE_IDLE,

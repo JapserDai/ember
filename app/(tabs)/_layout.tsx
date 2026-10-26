@@ -1,13 +1,22 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { TabBarIcon, type TabIconName } from '../../src/components/TabBarIcon';
 import { MAX_FONT_SCALE } from '../../src/theme/tokens';
 import { useTheme } from '../../src/theme/ThemeProvider';
 
 /**
- * 底部 4 个 tab：今天 / 目标 / 回忆 / 我的（docs/02 §4.1）。
+ * 底部 4 个 tab：今天 / 状态 / 日记 / 我的（docs/02 §4.1）。
+ *
+ * ---- 2026-10-26 的两个替换（D48 / D49）----
+ *
+ * 「目标」换成「状态」：照抄人升（LifeUp）的「状态」页——人生等级 + 属性条。
+ * 「目标」降为二级页，入口在「我的」页。理由：目标本来就不是每天要看的，
+ * 而「我走到哪了」是。底栏只有四个位置，占位的应该是最常回看的那个。
+ *
+ * 「回忆」换成「日记」：同一个 tab 换了重心——从「一堆卡片」变成
+ * 「每天写一句」。周 / 月复盘仍然在里面，但排到日记下面。
  *
  * 图标是手绘的 SVG（src/components/TabBarIcon.tsx），不装图标库。
  * 早先的做法是用一个汉字当图标（今 / 标 / 忆 / 我），问题在于
@@ -29,8 +38,8 @@ interface TabDef {
 
 const TABS: readonly TabDef[] = [
   { name: 'index', title: '今天', icon: 'today' },
-  { name: 'goals', title: '目标', icon: 'goals' },
-  { name: 'memories', title: '回忆', icon: 'memories' },
+  { name: 'status', title: '状态', icon: 'status' },
+  { name: 'journal', title: '日记', icon: 'journal' },
   { name: 'me', title: '我的', icon: 'me' },
 ];
 
@@ -74,20 +83,6 @@ export default function TabsLayout() {
           // 去掉安卓默认的投影，底栏是一条干净的线
           elevation: 0,
         },
-        tabBarLabelStyle: {
-          fontSize: labelSize,
-          // 行高显式写出来：上面的 barHeight 是按这个数算的。
-          // 不写的话，标签行高由字体自己决定，而那个值不跟系统字号缩放——
-          // 于是 barHeight 算出来是 70，标签却只占 16，底栏中间会空一大块。
-          lineHeight: labelLine,
-          fontFamily: theme.typography.fontFamily.body,
-          //
-          // 封顶 1.5：这个位置**不能**让字再大了。底栏是四个 tab 平分的，
-          // 标签比图标宽的时候，四个标签会互相挤到对方的位置上。
-          // 1.5 倍是 docs/02 §9 定的上限。
-          //
-          maxFontSizeMultiplier: MAX_FONT_SCALE,
-        },
         // 图标与标签之间的间距。默认值在各平台不一致，写死一个更好对齐
         tabBarIconStyle: {
           marginTop: 0,
@@ -102,6 +97,33 @@ export default function TabsLayout() {
           name={tab.name}
           options={{
             title: tab.title,
+            /*
+             * 标签自己画，不用默认的 Label。
+             *
+             * 原因：`tabBarLabelStyle` 的类型是 `StyleProp<TextStyle>`，而
+             * `maxFontSizeMultiplier` **不是** TextStyle 的字段——它是 Text 组件的 prop。
+             * 以前把它写进 style 里，tsc 报 TS2353，而且运行时也真的没生效。
+             *
+             * 这里封顶 1.5 是有必要的：底栏是四个 tab 平分的，标签比图标宽的时候，
+             * 四个标签会互相挤到对方的位置上。1.5 倍是 docs/02 §9 定的上限。
+             */
+            tabBarLabel: ({ color, children }) => (
+              <Text
+                numberOfLines={1}
+                allowFontScaling
+                maxFontSizeMultiplier={MAX_FONT_SCALE}
+                style={{
+                  fontSize: labelSize,
+                  lineHeight: labelLine,
+                  color: typeof color === 'string' ? color : palette.textMuted,
+                  fontFamily: theme.typography.fontFamily.body,
+                  fontWeight: theme.typography.weight.medium,
+                  textAlign: 'center',
+                }}
+              >
+                {children}
+              </Text>
+            ),
             tabBarIcon: ({ color, focused }) => (
               <View style={styles.iconSlot}>
                 {/*

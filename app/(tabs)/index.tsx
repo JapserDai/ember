@@ -2,6 +2,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  AppState,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,6 +12,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Card } from '../../src/components/Card';
+import { GuideCardView } from '../../src/components/GuideCardView';
+import { useGuideCard, GUIDE_HOST } from '../../src/components/useGuideCard';
 import { HearthBar } from '../../src/components/HearthBar';
 import { QuickStart } from '../../src/components/QuickStart';
 import { TaskRow } from '../../src/components/TaskRow';
@@ -27,6 +30,7 @@ import {
 import { QUICK_HABIT_TEMPLATES, type TaskTemplate } from '../../src/domain/task-templates';
 import { discoveryOfDay, shouldShowDiscovery } from '../../src/domain/discovery';
 import { scoreTask, undoCheckinByTaskDate } from '../../src/services/checkin';
+import { subscribeMaintenanceNotices } from '../../src/services/maintenance';
 import {
   deleteTask,
   getSafeDayStartHour,
@@ -139,6 +143,15 @@ export default function TodayScreen() {
   /** 一行中性提示（算分被拒绝、记录没写进去等） */
   const [notice, setNotice] = useState<string | null>(null);
   /**
+   * 提示队列。
+   *
+   * 为什么不是「一个 state 直接覆盖」：日常维护一次可能带回三句话
+   * （「中间空了一阵子」+「自动用了一张宽限券」+「收到了 2 个材料」）。
+   * 直接覆盖的话，用户只能看到最后一句，而前两句恰恰是更需要读的。
+   * 所以排成队列逐条说完，每一条都占满自己的 NOTICE_MS。
+   */
+  const noticeQueue = useRef<string[]>([]);
+  /**
    * 编辑态：每一行右侧出现「删」。
    *
    * 为什么要有编辑态，而不是一直显示删除按钮：这一页的主要动作是「记一笔」，
@@ -191,15 +204,39 @@ export default function TodayScreen() {
     };
   }, [award]);
 
-  /** 显示一行提示，2.5 秒后自己消失 */
-  const showNotice = useCallback((text: string) => {
-    if (noticeTimer.current) clearTimeout(noticeTimer.current);
-    setNotice(text);
+  /** 显示一行提示，2.5 秒后自己消失；排队时前一条说完再说下一条 */
+  const pumpNotice = useCallback(function pump() {
+    // 正在显示某一条：等它的定时器把位置腾出来
+    if (noticeTimer.current) return;
+    const next = noticeQueue.current.shift();
+    if (next === undefined) return;
+    setNotice(next);
     noticeTimer.current = setTimeout(() => {
-      setNotice(null);
       noticeTimer.current = null;
+      setNotice(null);
+      // 队列里还有就接着说。不递归到爆栈：每一条至少要等 2.5 秒
+      pump();
     }, NOTICE_MS);
   }, []);
+
+  const showNotice = useCallback(
+    (text: string) => {
+      // 去重：连着来两次同一句（比如连点两下同一件已完成的事）不重复排队
+      if (noticeQueue.current[noticeQueue.current.length - 1] === text) return;
+      noticeQueue.current.push(text);
+      pumpNotice();
+    },
+    [pumpNotice]
+  );
+
+  /*
+   * 订阅「回来之后发生了什么」（结算 / 宽限券 / 月度奖励）。
+   *
+   * 冷启动时这三件事跑在首帧之前，那时这一页还没挂载，
+   * 所以句子先攒在 services/maintenance.ts 的队列里；
+   * 这里一挂上就会把攒下的几句立刻交过来。
+   */
+  useEffect(() => subscribeMaintenanceNotices(showNotice), [showNotice]);
 
   // 卸载时清掉定时器，避免在已卸载的组件上 setState
   useEffect(() => {
@@ -231,6 +268,23 @@ export default function TodayScreen() {
       return () => setEditing(false);
     }, [refresh])
   );
+
+  /*
+   * 从后台切回前台时重读一次。
+   *
+   * 跨过日界的那一刻（比如凌晨 4 点后第一次点亮屏幕）业务日已经变了，
+   * 而 useFocusEffect 只在路由变化时触发——App 一直在这一页上就没路由变化。
+   * 不重读的话，用户会看到昨天的那份清单，包括已经不能撤销的记录。
+   *
+   * 维护（结算 / 宽限券 / 月度奖励）由根布局的 AppState 监听跑，
+   * 它说的话会自动回到这里的提示队列，所以这里只负责重读数据。
+   */
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refresh();
+    });
+    return () => sub.remove();
+  }, [refresh]);
 
   // 首帧的空状态也要有个标题可画，所以先用日界推一个日期出来
   const view = data ?? lastGood;
@@ -396,6 +450,15 @@ export default function TodayScreen() {
   );
 
   const goNewTask = useCallback(() => router.push('/tasks/new'), [router]);
+
+  /*
+   * D1–D7 引导（阶段 6 第 7 条）。
+   *
+   * 今天页负责第 1 / 2 / 4 / 6 / 7 天（分工见 components/useGuideCard.ts）。
+   * 卡放在页面**底部**，不在顶部：用户打开这一页是为了看今天要做什么，
+   * 引导卡排在内容之后，不看也能直接往下滑。
+   */
+  const guide = useGuideCard(GUIDE_HOST.today);
 
   return (
     <View style={{ flex: 1, backgroundColor: palette.background }}>
@@ -816,6 +879,22 @@ export default function TodayScreen() {
             {discovery.text}
           </Text>
         </Card>
+      ) : null}
+      {/*
+       * D1–D7 引导卡。排在所有内容之后。
+       *
+       * 为什么不在最上面：这一页的主体是「今天要做什么」，
+       * 而引导卡说的是「这个 App 还能怎么用」。把后者放前面，
+       * 等于每天先给用户读一句说明再去记事情。
+       */}
+      {guide.card ? (
+        <View style={{ paddingHorizontal: theme.spacing.pageX }}>
+          <GuideCardView
+            card={guide.card}
+            onAction={guide.runAction}
+            onDismiss={guide.dismiss}
+          />
+        </View>
       ) : null}
     </ScrollView>
 

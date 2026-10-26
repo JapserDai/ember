@@ -8,6 +8,7 @@ import { createTask } from '../src/db/repo/tasks';
 import { markOnboardingDone } from '../src/db/repo/player';
 import { businessDate } from '../src/domain/date';
 import { guessAttribute } from '../src/domain/task-templates';
+import { anchorGuideStart } from '../src/services/guide';
 import { getSafeDayStartHour } from '../src/services/today';
 import { useTheme } from '../src/theme/ThemeProvider';
 
@@ -97,6 +98,17 @@ export default function OnboardingScreen() {
         });
       }
       markOnboardingDone();
+      /*
+       * D1–D7 的起算日定成今天（阶段 6 第 7 条）。
+       *
+       * 必须在 markOnboardingDone 之后、而且必须在这里做：
+       * 用户可能装完 App 三天后才走完这三屏，而 guide_start_date 可能是
+       * 首次读库时补的「那天」。让 D1 从他真正进入 App 的这天开始，
+       * 比让他一进来就看到 D4 合理。
+       *
+       * 它自己包了 try/catch，失败不影响进 App。
+       */
+      anchorGuideStart();
       setError(null);
       // 回到今天页。用 replace 而不是 push：引导不该留在返回栈里
       router.replace('/');

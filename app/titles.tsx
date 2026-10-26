@@ -3,11 +3,11 @@ import React, { useCallback, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Card } from '../../src/components/Card';
-import { getPlayerSnapshot } from '../../src/db/repo/player';
-import { ATTRIBUTE_KEYS, ATTRIBUTE_LABEL, type AttributeKey } from '../../src/domain/balance';
-import { TITLES, titleProgress, titlesOf, type Title } from '../../src/domain/titles';
-import { useTheme } from '../../src/theme/ThemeProvider';
+import { Card } from '../src/components/Card';
+import { getPlayerSnapshot } from '../src/db/repo/player';
+import { ATTRIBUTE_KEYS, ATTRIBUTE_LABEL, type AttributeKey } from '../src/domain/balance';
+import { TITLES, titleProgress, titlesOf, type Title } from '../src/domain/titles';
+import { useTheme } from '../src/theme/ThemeProvider';
 
 /**
  * 称号图鉴（阶段 4 第 4 条）。

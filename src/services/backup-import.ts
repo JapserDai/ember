@@ -216,9 +216,10 @@ function rebuildPlayerSnapshot(payload: BackupPayload): void {
  * 插入顺序正着来：player → settings → goals → tasks → checkins。
  * 顺序错了会撞外键约束，而且报的是英文 SQL 错误。
  *
- * streak_bridges（D38）没有任何外键，删和插都放在最后：
- * 删它放在第一行也行，但把它归到「无依赖的表最后处理」这条规则下，
- * 以后给它加外键时就不用改这里的顺序。
+ * streak_bridges（D38）/ reviews / month_reviews / journal_entries（D49）
+ * 都没有任何外键，删和插都放在最后：
+ * 删它们放在第一行也行，但把这一类归到「无依赖的表最后处理」这条规则下，
+ * 以后给它们加外键时就不用改这里的顺序。
  */
 function replaceAllData(payload: BackupPayload): void {
   const db = getDb();
@@ -226,6 +227,7 @@ function replaceAllData(payload: BackupPayload): void {
   db.execSync('DELETE FROM streak_bridges;');
   db.execSync('DELETE FROM reviews;');
   db.execSync('DELETE FROM month_reviews;');
+  db.execSync('DELETE FROM journal_entries;');
   db.execSync('DELETE FROM checkins;');
   db.execSync('DELETE FROM tasks;');
   db.execSync('DELETE FROM goals;');

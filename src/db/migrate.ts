@@ -32,11 +32,13 @@ import {
   MIGRATE_V9_TO_V10_SQL,
   MIGRATE_V10_TO_V11_SQL,
   MIGRATE_V11_TO_V12_SQL,
+  MIGRATE_V12_TO_V13_SQL,
+  MIGRATE_V13_TO_V14_SQL,
   SCHEMA_SQL_V1,
 } from './schema';
 
 /** 代码期望的 schema 版本。每次新增迁移，这里要同步 +1。 */
-export const CURRENT_SCHEMA_VERSION = 12;
+export const CURRENT_SCHEMA_VERSION = 14;
 
 /**
  * 迁移函数数组。
@@ -193,6 +195,32 @@ const MIGRATIONS: ReadonlyArray<(db: SQLiteDatabase) => void> = [
     if (!hasMonth) {
       db.execSync(MIGRATE_V11_TO_V12_SQL);
     }
+  },
+
+  // 12 → 13：player 加 guide_start_date（D1–D7 引导的起算日）。
+  //
+  // 同一个坑（v4→v5 / v6→v7 / v10→v11 / v11→v12）：先查 PRAGMA 再加列。
+  // 老库升级上来是 NULL，不是「今天」——补锚点这件事属于业务判断，
+  // 放在 services/guide.ts 里做（迁移只改结构，不替用户决定日期）。
+  (db) => {
+    const columns = db.getAllSync<{ name: string }>(`PRAGMA table_info(player)`);
+    const hasGuide = columns.some((column) => column.name === 'guide_start_date');
+    if (!hasGuide) {
+      db.execSync(MIGRATE_V12_TO_V13_SQL);
+    }
+  },
+
+  // 13 → 14：加 journal_entries 表（每天写一句，D49）。
+  //
+  // 纯加法，与 v7→v8 / v8→v9 / v9→v10 同一个形态：
+  // 建一张新表，不碰任何已有的表与列。
+  // 老库升级上来是空的——「一天都没写过」，这是真实情况，
+  // 升级不该凭空替任何人补出几篇日记。
+  //
+  // 不需要查 PRAGMA：这里加的是**表**不是列，
+  // 而常量里用的是 CREATE TABLE IF NOT EXISTS，重复执行是空操作。
+  (db) => {
+    db.execSync(MIGRATE_V13_TO_V14_SQL);
   },
 ];
 
