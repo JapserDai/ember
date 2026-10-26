@@ -19,8 +19,9 @@
 name: 发布落地页
 
 on:
+  workflow_dispatch:
   push:
-    branches: [main]
+    branches: [master, main]
     paths:
       - 'site/**'
       - '.github/workflows/pages.yml'
