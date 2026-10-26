@@ -13,7 +13,7 @@
 用户是近乎零基础的自学者，靠 AI 写代码。**所有代码注释、所有文档、所有界面文案必须是中文。**
 
 **当前进度**：阶段 0–5 **全部完成**；阶段 6 完成 **7/9**（只剩「商店截图」与「真机手测」——两件都只差一台真机）。
-**代码状态**（2026-10-27 实测）：`tsc` **0 错误**、`expo export` **通过**（3.5MB .hbc）、`npx expo start` 起得来、仓库外 **1218 项断言全绿**（22 个套件）。
+**代码状态**（2026-10-27 实测）：`tsc` **0 错误**、`expo export` **通过**（3.5MB .hbc）、`npx expo start` 起得来、仓库外 **1266 项断言全绿**（23 个套件）。
 
 **2026-10-26 上一轮（D48 / D49）**：底栏从「今天/目标/回忆/我的」改成「**今天/状态/日记/我的**」。
 「目标」换成照抄人升（LifeUp）的「**状态**」页（人生等级 + 五维属性条 + 称号），目标降为二级页（入口在「我的」）；
@@ -69,7 +69,7 @@ D1–D7 引导（迁移 v12→v13）、GitHub Pages 落地页（可点的火带�
 cd C:/Users/16907/Ember
 npx tsc --noEmit                              # 期望：无输出
 npx expo export --platform android --max-workers 1   # 期望：成功，约 3.5MB .hbc
-sh "C:/Users/16907/AppData/Local/Temp/ember-check/run-all.sh"  # 期望：22 个套件全绿（1218 项）
+sh "C:/Users/16907/AppData/Local/Temp/ember-check/run-all.sh"  # 期望：23 个套件全绿（1266 项）
 ```
 
 第三条是**仓库外**的临时测试（见 §7）。它在 `%TEMP%` 下，不进 git——如果那台机器上已经没有了，§7 写了怎么重建。
@@ -80,7 +80,7 @@ sh "C:/Users/16907/AppData/Local/Temp/ember-check/run-all.sh"  # 期望：22 个
 | --- | --- |
 | `npx tsc --noEmit` | 0 错误 |
 | `npx expo export` | 成功，3.5MB `.hbc` |
-| `run-all.sh` | 22 套件 / 1218 项断言全绿（2026-10-27；`home-prefs-test` 80 项、`simplify-test` 76 项、`migrate-old-test` 21 项、`pomodoro-test` 54 项） |
+| `run-all.sh` | 23 套件 / 1266 项断言全绿（2026-10-27；`home-prefs-test` 80 项、`simplify-test` 76 项、`migrate-old-test` 21 项、`pomodoro-test` 54 项、`apk-signature-test` 48 项） |
 | `npx expo start` + 请求 dev bundle | HTTP 200，路由里含 `(tabs)/status`、`(tabs)/journal`、`goals/index` |
 
 > **上一版文档说「tsc 0 错误、193 项全绿」是错的。** 接手时实测到 **9 个 tsc 错误**
@@ -159,6 +159,7 @@ npm install          # .npmrc 里的 legacy-peer-deps=true 会挡住那五个
 | **不许让 `expo-router` 的 optional peer 混进 `node_modules`** | 见 §1.2。`.npmrc` 的 `legacy-peer-deps=true` 就是为它写的。装进来会让**开发服务器**报 `Cannot read property 'ErrorBoundary' of undefined`，而 `tsc` / `expo export` / 那 305 项断言**全都发现不了** |
 | **不许删/覆盖** `@jasperdai__ember.jks` 与 `@jasperdai__ember.bak.jks` | 两个 keystore 在仓库根目录（已被 .gitignore 排除）。删错一个，**已经装在手机上的 apk 就再也无法升级** |
 | **不许读/探测** 任何含凭据的文件（如 `~/.expo/state.json`） | 已被安全分类器判定为凭据探测。被拦下的命令**不要绕过**，换一条路或直接问用户 |
+| **发版前必须跑** `node scripts/check-apk-signature.ts <apk> --keystore @jasperdai__ember.jks` | 它是唯一能在装之前发现「EAS 换了钥匙 / 包被改过 / 根本没签」的办法。**别用「解压工具里有没有 `*.SF`」判断** —— 见 §2.5 |
 
 ### 2.2 数据层的两条铁律
 
@@ -200,6 +201,43 @@ app/  →  services/  →  db/repo/  →  domain/
 3. **不评判**——只记录，不指责。没有「你失败了」，没有排行榜。
 
 具体到界面：**断签后任何位置不出现「0」和「归零」**。连胜断了要显示「有一段空档」+「历史最佳 X 天 / 累计 Y 天」，三个数并排——用户看到的是「我做过很多」。
+
+---
+
+### 2.5 签名：apk 里没有 `META-INF/*.SF` 是**正常**的
+
+2026-10-26 用户报「安装包没有签名文件」。核实结论：**包有签名，而且签名是完整的。**
+
+**为什么看起来「没有」**：`*.SF` / `*.RSA` 属于 **v1 签名（JAR signing）**。这个包由
+AGP 9.2.1 构建，默认只签 **v2**，而 v2 的签名**不在 zip 的条目里**——它写在
+「APK Signing Block」，一段夹在「最后一条文件」和「中央目录」之间的二进制块。
+解压工具按中央目录遍历，看不到它。**反过来：只有 v1 的包在 Android 11+ 反而装不上。**
+
+`ember-0.0.1.apk` 实测（脚本可复现）：
+
+| 项 | 值 |
+| --- | --- |
+| 签名方案 | v2（块 id `0x7109871a`，另有 `0x504b4453` 依赖信息 / `0x42726577` verity padding） |
+| 算法 | RSASSA-PKCS1-v1_5 / SHA-256，RSA-2048 |
+| 证书序列号 | `CBA4730E2BCEE625`，有效期至 2054-03-11 |
+| 证书 SHA-256 | `A9:E2:DB:A4:80:43:B2:7F:…:A9:21:20:56` |
+| 对应的 keystore | `@jasperdai__ember.jks`，alias `fcc7220bf00ec63caba04188dd452d9e` |
+| 文件 SHA-256 | `4ff2f7af92467a5895e1e388b013c503071acfd799cdd57b5028c7ad83c23827` |
+
+**怎么自己验（不用装 Android SDK）**：
+
+```bash
+node scripts/check-apk-signature.ts dist/ember-0.0.1.apk --keystore @jasperdai__ember.jks
+```
+
+它会验四件事：签名块结构自洽、签名值能用签名里的公钥验过、**按 v2 规则重算的内容摘要**
+与签名里写死的一致、公钥与第一张证书的公钥相同；再比一次 keystore 里的证书。
+最后一行必须是 `结论     签名有效`。改过一个字节的包会报「内容摘要对不上」。
+
+> **`@jasperdai__ember.bak.jks` 是另一把钥匙，不是主钥匙的副本。**
+> 它的指纹是 `B5:AB:7F:42:…:39:AF:6A:EF`（2026-10-24 11:51 生成，比主钥匙早 13 分钟）。
+> 拿它去签 0.0.2，已经装在手机上的 0.0.1 就**再也升不上去**。脚本用 `--keystore` 指向它时会
+> 明确报「没有任何一张证书对得上」。
 
 ---
 
@@ -403,9 +441,17 @@ site/                        落地页（GitHub Pages 的站点本体，无构�
 **⑤ 图鉴的另两类** —— 称号图鉴已完成；材料与复盘两类没做，
 因为材料只有两种（普通/精炼），单独开一页没有信息量（D41）。
 
-**⑥ EAS 实际出包** —— `eas.json` 已配好 preview 档（`buildType: apk`），
-但还没真的跑过一次 `eas build`。原因不再是环境坏（`bash` 已修），
-而是「等代码稳定到值得打一个版本再打」。出包之后落地页的下载按钮才会亮（D46）。
+**⑥ ~~EAS 实际出包~~ —— 已出包（2026-10-26）。** `eas.json` 的 preview 档（`buildType: apk`）
+出过两次：`f5031910`（commit `035a9962`，10-24）与 `e753f81a`（commit `8ef5c780`，10-26）。
+后者就是线上那个 87.6MB 的 `ember-0.0.1.apk`（`v0.0.1` Release + 落地页下载按钮都已经接到它）。
+签名核对见 §2.5 与 `scripts/check-apk-signature.ts`（D69）。
+
+> **记一笔容易混的事**：10-24 那次构建（68MB）签的是**备份钥匙**
+> `@jasperdai__ember.bak.jks`（指纹 `B5:AB:7F:42…`），10-26 这次签的是主钥匙
+> `@jasperdai__ember.jks`（`A9:E2:DB:A4…`）。两个包的包名与 versionCode 都是
+> `com.emberhabit.app` / `1`，所以**它们互相装不上，必须先卸载**。
+> 线上发布的、手机里该装的是**10-26 那个**。下次构建前先看一眼
+> `npx eas build:list` 的 commit 与 `--keystore` 核对结果，不要拿旧包去覆盖。
 
 ---
 
@@ -495,7 +541,7 @@ ESB="C:/Users/16907/AppData/Local/npm-cache/_npx/beb367dfa21eb3f5/node_modules/.
 EMBER_TMP=$(mktemp -d) node xxx-test.js
 ```
 
-现成的 **22 个套件**（共 **1218 项**断言，`run-all.sh` 一次跑完）：
+现成的 **23 个套件**（共 **1266 项**断言，`run-all.sh` 一次跑完）：
 
 | 套件 | 项数 | 覆盖 |
 | --- | --- | --- |
@@ -520,6 +566,7 @@ EMBER_TMP=$(mktemp -d) node xxx-test.js
 | `home-prefs-test` | 80 | 首页偏好（D62）**与日记偏好（D65）**：迁移到 v17、两列都在备份白名单里、`parse*Prefs` 的字段级兜底（坏 JSON / 错类型 / 越界 / 部分坏字段）、`serialize*Prefs` 只写差异、**`todoLimit` 真的改变首页列出几条待办**、**`bodyLimit` 真的截断写进库的内容且不传时行为不变**、历史条数真的改变列出几条 |
 | `simplify-test` | 75 | **静态**断言（D63–D65）：左滑的符号与红底方位、判据阈值、我的页去彩（彩虹与洗色必须**不存在**）、资料页只剩一个输入框、保存名字时把原 `bio` 传回去、日记页四个入口已删、三个新设置页与入口、页头提示改成「左滑可以删」 |
 | `migrate-old-test` | 21 | **旧库继续升级**（D65 事故的回归测试）：真造一个「`user_version` 已到 16、但缺 `journal_prefs`」的库，再跑 `migrate`，断言列被补上、默认 `'{}'`、`getSettings()` 读得出来；并断言 v15→v16 的 SQL 正文里**不含** `journal_prefs`（防止有人再把它塞回已发布的迁移） |
+| `apk-signature-test` | 48 | **apk 的 v2 签名**（D69）：真包验得过（签名值 + 内容摘要 + 公钥与证书一致）、**`META-INF` 里没有 `*.SF` 是正常的**、改一个字节被抓、抹掉签名块被判「没有 v2/v3 签名」、JKS 只读证书链能取指纹、**备份 keystore 是另一把钥匙**、报告措辞（`签名有效` / `就是这把钥匙` / `会让老用户装不上`）。没有 `dist/` 时**跳过**而不是失败 |
 
 
 **新加断言时注意三件事：**
@@ -633,7 +680,7 @@ D43–D50 全部在这一次提交里，包括 D48/D49 的 tab 改造（`status.
 4. **D53 商店 v15**（`player` 三列、`shop.ts`、`ShopMark`、`shop-test`）。
 5. **D54 「看更早的」目录页**（`app/journal/history.tsx`、`src/services/journalHandoff.ts`、
    `getJournalPage` / `getJournalDay` / `listJournalEntriesBefore`；状态页删掉「看全部称号」入口）。
-   这一项改完 `tsc` 0 错误、`expo export` 通过、22 套件 1218 项断言全绿。
+   这一项改完 `tsc` 0 错误、`expo export` 通过、23 套件 1266 项断言全绿。
 
 > **断言总数现在从代码算，不从文档抄。** `run-all.sh` 的输出把每套件的「N 通过」加起来就是总数
 > （2026-10-27 实测 1164）。文档里这一串数字已经错过两次，改套件后**顺手重算一次**。

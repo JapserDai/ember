@@ -34,7 +34,7 @@ window.EMBER_SITE = {
 - `apkVersion` 为 `null` 时，下载按钮显示「还没有可下载的版本」并且点不动。
   **不要**为了好看把它填成一个还不存在的版本——那就是一个死链。
 
-## 三、出包之后要做的三件事
+## 三、出包之后要做的四件事
 
 1. `apkVersion` 填上真实版本号。
 2. 在 GitHub **Releases** 里打 tag `v0.1.0`，把 apk 命名为 `ember-0.1.0.apk` 上传。
@@ -44,9 +44,41 @@ window.EMBER_SITE = {
    {repo}/releases/download/vapkVersion}/ember-apkVersion}.apk
    ```
 
-3. 真机截图放进 `site/img/`，然后在 `index.html` 的「它不做什么」后面加一节。
+3. **核对新包签的是同一把钥匙**（这一步别跳，见下面「签名」一节）。
+
+4. 真机截图放进 `site/img/`，然后在 `index.html` 的「它不做什么」后面加一节。
    截图必须是真机的，不要用模拟器或渲染图——这个产品的第一条承诺是
    「离线、只在这台手机上」，用假图会毁掉这句话。
+
+## 三点五、签名：解压看不到签名文件是正常的
+
+**`apk` 用解压工具打开，`META-INF/` 里没有 `*.SF` / `*.RSA` —— 这是正常的，不是没签名。**
+
+那三个文件属于 **v1 签名**，Android 早就淘汰了（只有 v1 的包在 Android 11+ 反而装不上）。
+现在的 AGP 默认只签 **v2**，而 v2 的签名**不在 zip 的条目里**：它写在「APK Signing Block」，
+一段夹在「最后一条文件」和「中央目录」之间的二进制块，解压工具按目录列表遍历，看不见它。
+
+要确认签名，跑仓库根目录那个脚本（不需要装 Android SDK / Java）：
+
+```bash
+cd ..   # 回到仓库根目录
+node scripts/check-apk-signature.ts dist/ember-0.0.1.apk --keystore @jasperdai__ember.jks
+```
+
+期望最后一行是 `结论     签名有效`，中间有一行
+`keystore @jasperdai__ember.jks 里的 fcc7220b… 就是这把钥匙 ✓`。
+
+**为什么这一步不能省**：Android 只允许「同一个包名 + 同一把钥匙」的包覆盖安装。
+换一把钥匙签名，已经装了旧版的用户**必须先卸载** —— 而卸载会把本地数据库一起删掉，
+这个 App 的数据只在这台手机上，删了就没了。所以每次出包都要确认：
+
+| 该用的 | 不要用 |
+| --- | --- |
+| `@jasperdai__ember.jks`（alias `fcc7220bf00ec63caba04188dd452d9e`，指纹 `A9:E2:DB:A4:…:A9:21:20:56`） | `@jasperdai__ember.bak.jks`（指纹 `B5:AB:7F:42:…`）—— 那是**另一把钥匙**，不是备份副本 |
+
+脚本带上 `--keystore` 时会把这件事直接判成成功 / 失败，不用人眼比对指纹。
+
+---
 
 ## 四、这个页面的三条约束
 
