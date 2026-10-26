@@ -745,6 +745,17 @@ h1 {
 .defs-grid .def {
   padding-top: 1rem;
   border-top: 1px solid var(--rule);
+  /*
+   * 网格里的 .def 改回**单列**：标题在上，正文在下。
+   *
+   * .def 原本是「12rem 标签 + 1fr 正文」的两列定义列表，那是给 #promise、
+   * #data 那种占满整行的段落用的。放进 .defs-grid 的 464px 格子里以后，
+   * 标签吃掉 192px、间距再吃 40px，正文只剩 232px——三四个字折一行；
+   * 800 宽时更是只剩 104px，几乎一字一行。
+   * 手机上 .def 在 44rem 以下本来就是单列，所以这个坑只在电脑端露出来。
+   */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.35rem;
 }
 
 /* ============================ 结尾 ============================ */
