@@ -44,6 +44,20 @@
         if (SITE.apkSize) bits.push(SITE.apkSize);
         if (SITE.minAndroid) bits.push('Android ' + SITE.minAndroid + ' 及以上');
         dlNote.textContent = bits.join(' · ');
+
+        /*
+         * SHA-256 校验值（如果配置里给了）。
+         *
+         * 侧载分发没有商店背书，把这个值摆在明面上：
+         * 在乎的人可以下载后算一遍，对得上才装。
+         * 没配（或还是占位符）时整行不显示。
+         */
+        var checksum = document.getElementById('download-checksum');
+        var sha = SITE.apkSha256;
+        if (checksum && sha && sha.indexOf('PLACEHOLDER') === -1 && /^[0-9a-fA-F]{64}$/.test(sha)) {
+          checksum.hidden = false;
+          checksum.textContent = 'SHA-256：' + sha.toLowerCase();
+        }
       } else {
         /*
          * 还没有出包时，**不要**留一个点了没反应的按钮，也不要指向 404。

@@ -18,6 +18,12 @@
 # 没有构建步骤：那个目录就是站点本身。
 name: 发布落地页
 
+# 同一分支连推两次时，只留最后一次的部署在跑，
+# 避免两份 artifact 抢同一个 Pages 环境
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
   push:

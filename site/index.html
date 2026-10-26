@@ -6,6 +6,28 @@
 <title>Ember — 一个完全离线的记录 App</title>
 <meta name="description" content="Ember 是一个完全离线的 Android 记录 App。没有账号、没有服务器、不申请网络权限。数据只在这台手机上。">
 <meta name="theme-color" content="#FAF9F8">
+<meta name="color-scheme" content="light">
+<!--
+  分享到聊天软件时的预览。不设 og:image：那需要一张托管图，
+  而这个页面不加载任何外部资源是它的立场之一，不为了预览图破例。
+-->
+<meta property="og:title" content="Ember — 一个完全离线的记录 App">
+<meta property="og:description" content="没有账号、没有服务器、不申请网络权限。数据只在这台手机上。">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://japserdai.github.io/ember/">
+<meta property="og:locale" content="zh_CN">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "MobileApplication",
+  "name": "Ember",
+  "operatingSystem": "Android 8.0+",
+  "applicationCategory": "LifestyleApplication",
+  "inLanguage": "zh-CN",
+  "description": "完全离线的习惯记录 App：没有账号、没有服务器、不申请网络权限。",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "CNY" }
+}
+</script>
 <!--
   站点配置：**只改这一处**。
 
@@ -17,8 +39,9 @@
 <script>
   window.EMBER_SITE = {
     repo: 'https://github.com/JapserDai/ember',
-    apkVersion: null,
+    apkVersion: '0.0.1',
     apkSize: null,
+    apkSha256: 'APK_SHA256_PLACEHOLDER',
     minAndroid: '8.0',
   };
 </script>
@@ -38,6 +61,7 @@
       <span>Ember</span>
     </a>
     <nav class="topnav" aria-label="页面导航">
+      <a href="#features">它有什么</a>
       <a href="#promise">三条底线</a>
       <a href="#refuse">它不做什么</a>
       <a href="#install">怎么装</a>
@@ -100,6 +124,40 @@
 
       <p class="demo-hint">点圆圈记一次；长按已经记过的那一行可以撤销；右滑待办可以删。</p>
     </div>
+  </section>
+
+  <!-- ============ 它有什么 ============ -->
+  <section class="wrap section" id="features">
+    <h2>它有什么</h2>
+    <p class="section-lede">
+      六个功能，全是围绕「每天记几件小事」长出来的。没有社交、没有比较、没有推送轰炸。
+    </p>
+    <dl class="defs defs-grid">
+      <div class="def">
+        <dt>每天记几件</dt>
+        <dd>习惯（每天或每周几次）与待办分开。顶上那条火带只反映今天的习惯，待办就是一张便签，滑一下就能删。</dd>
+      </div>
+      <div class="def">
+        <dt>五维与称号</dt>
+        <dd>体魄、心智、秩序、心力、联结——记了什么，哪一维就长。攒出的属性点解锁称号，纯展示，不影响任何数值。</dd>
+      </div>
+      <div class="def">
+        <dt>商店与自定义奖励</dt>
+        <dd>余烬可以换材料、连胜护盾、宽限券，也可以自己写一条奖励、自己标价，攒够了兑给自己。</dd>
+      </div>
+      <div class="def">
+        <dt>番茄钟</dt>
+        <dd>专注 25 / 休息 5 / 起搏 1 三档。走完记一段事实，今天几个一目了然；不打分、不绑任务、没走完的不算数。</dd>
+      </div>
+      <div class="def">
+        <dt>日记与复盘</dt>
+        <dd>每天写一句就够。周日月复盘问三个固定问题，全可空，想跳过就跳过，不会因此多说什么。</dd>
+      </div>
+      <div class="def">
+        <dt>备份与导入</dt>
+        <dd>一份带校验和的 JSON 交给你自己保管。导入前自动拍快照，导错了能整体退回去。</dd>
+      </div>
+    </dl>
   </section>
 
   <!-- ============ 三条底线 ============ -->
@@ -181,6 +239,12 @@
       <li>
         <h3>下载 apk</h3>
         <p>点上面的下载按钮。文件会进「下载」文件夹。</p>
+        <!--
+          侧载分发没有商店替你背书，那就把能自己证明的都摆出来：
+          版本号、文件大小、SHA-256。app.js 会把 SHA-256 填进来；
+          没配时不显示这一行，不占地方。
+        -->
+        <p class="checksum" id="download-checksum" hidden></p>
       </li>
       <li>
         <h3>允许这个来源安装</h3>

@@ -699,6 +699,35 @@ h1 {
   color: var(--ink-muted);
 }
 
+/* 安装步骤里的校验行。等宽字体是它唯一重要的样式：
+   SHA-256 要能逐字符对读，换行时不断在字符中间 */
+.checksum {
+  margin: 0.75rem 0 0;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  word-break: break-all;
+}
+
+/* 「它有什么」的两列网格。桌面双栏、手机单栏，
+   复用 .def 的字型，只加栅格与分隔线 */
+.defs-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem 3rem;
+}
+
+@media (min-width: 48rem) {
+  .defs-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.defs-grid .def {
+  padding-top: 1rem;
+  border-top: 1px solid var(--rule);
+}
+
 /* ============================ 结尾 ============================ */
 
 .end {
