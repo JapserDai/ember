@@ -24,18 +24,19 @@ import { ThemeProvider, useTheme } from '../src/theme/ThemeProvider';
  *      以上三步都封装在 initDatabase() 里，一次调用即可。
  *   4. 惰性日结算：把 last_settled_date 推到今天（src/services/settle.ts）
  *   4.5 宽限券 + 4.6 月度奖励：与结算同属「日常维护」（src/services/maintenance.ts）
- *   5. 读 settings，拿到 reduce_motion
+ *   5. 读 settings，拿到 theme_id
  *   6. 渲染界面
  *
  * 全部步骤都是同步的（expo-sqlite 的同步 API），放在 useState 的初始化函数里一次做完，
- * 保证第一帧就带着正确的设置，不会出现「先播动效再关掉」。
+ * 保证第一帧就带着正确的设置。
  *
  * **第 4 步必须在第 5 步之前。** 结算会写 settings，先读后结算的话
- * 读到的是结算前的值。这一版读的 reduce_motion 不受结算影响，
+ * 读到的是结算前的值。theme_id 不受结算影响，
  * 但顺序按真实依赖写，免得将来加字段时踩坑。
  *
- * 第 5 步只读 reduce_motion：theme_id / theme_mode 两列还在库里（迁移已发布，列不动），
- * 但界面只剩一套白底主题，不再有可切换的外观。
+ * 第 5 步只读 theme_id：theme_mode / reduce_motion 两列还在库里（迁移已发布，列不动）。
+ * reduce_motion 自 D67 起没人读——动效改为跟随系统无障碍设置，
+ * 在 ThemeProvider 里读 AccessibilityInfo。
  *
  * ---- 通知在启动流程之外 ----
  *
@@ -58,7 +59,6 @@ import { ThemeProvider, useTheme } from '../src/theme/ThemeProvider';
 
 /** 启动阶段读到的设置。任何一步出错都回退到默认值，保证界面能出来 */
 interface BootState {
-  reduceMotion: boolean;
   /** 主题 id。界面层会再 normalize 一次，这里只负责把库里的值递过去 */
   themeId: string;
   /** 引导做完了没有。false 时首帧之后会推到 /onboarding */
@@ -112,7 +112,8 @@ function bootstrap(): BootState {
      */
 
     return {
-      reduceMotion: settings.reduce_motion === 1,
+      // 减少动效 D66 起跟随系统（ThemeProvider 里读 AccessibilityInfo），不再读库。
+      // settings.reduce_motion 仍在表里，但没有任何写入方——见 D31（不删列）。
       themeId: settings.theme_id,
       onboardingDone,
     };
@@ -120,7 +121,6 @@ function bootstrap(): BootState {
     // 数据库不可用时不要白屏：退回默认设置，界面照常渲染
     console.warn('[Ember] 数据库初始化未完成，界面暂时使用默认设置', err);
     return {
-      reduceMotion: false,
       themeId: 'furnace',
       // 读不到就当已做完：宁可少一次引导，也不要在一个坏掉的库上
       // 把用户困在引导里（那一页会建任务，而建任务会失败）
@@ -135,7 +135,7 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <ThemeProvider initialReduceMotion={boot.reduceMotion} initialThemeId={boot.themeId}>
+      <ThemeProvider initialThemeId={boot.themeId}>
         <ThemedRoot onboardingDone={boot.onboardingDone} />
       </ThemeProvider>
     </SafeAreaProvider>

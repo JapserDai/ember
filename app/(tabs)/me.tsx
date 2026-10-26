@@ -723,6 +723,53 @@ export default function MeScreen() {
        */}
 
       {/*
+       * 番茄钟入口（D68）。
+       *
+       * 放在复盘上面，因为它们同为「二级功能」，而番茄钟的使用频率
+       * 会高得多（每天数次 vs 每周一次）。它不是 tab：首页的职责是
+       * 「今天要做什么」（D61 立下的判据），计时器不是待办，
+       * 放进去正好是那一轮刚清掉的那类东西。
+       */}
+      <View style={{ marginTop: theme.spacing.cardGap, paddingHorizontal: theme.spacing.pageX }}>
+        <Card padding={0}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="番茄钟，一段时间一段时间地专注"
+            onPress={() => router.push('/pomodoro')}
+            style={({ pressed }) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              minHeight: 52,
+              paddingHorizontal: theme.spacing.cardPadding,
+              opacity: pressed ? 0.55 : 1,
+            })}
+          >
+            <Text
+              style={{
+                fontSize: theme.typography.size.body,
+                lineHeight: theme.typography.lineHeight.body,
+                color: palette.text,
+                fontFamily: theme.typography.fontFamily.body,
+              }}
+            >
+              番茄钟
+            </Text>
+            <Text
+              style={{
+                fontSize: theme.typography.size.caption,
+                lineHeight: theme.typography.lineHeight.caption,
+                color: palette.textMuted,
+                fontFamily: theme.typography.fontFamily.body,
+              }}
+            >
+              专注 / 休息 / 起搏
+            </Text>
+          </Pressable>
+        </Card>
+      </View>
+
+      {/*
        * 复盘入口（D64）。
        *
        * 从日记页搬过来的：日记页现在只回答「我写过什么」，

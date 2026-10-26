@@ -895,3 +895,61 @@ ALTER TABLE settings ADD COLUMN home_prefs TEXT NOT NULL DEFAULT '{}';
 export const MIGRATE_V16_TO_V17_SQL = `
 ALTER TABLE settings ADD COLUMN journal_prefs TEXT NOT NULL DEFAULT '{}';
 `;
+
+// ============================================================
+// 迁移 18：番茄钟（D68）
+// ============================================================
+
+/**
+ * 17 → 18：加 pomodoros 表（D68，番茄钟）。
+ *
+ * ---- 为什么是一张表，而不是一列 JSON ----
+ *
+ * 番茄钟的三项偏好（默认档 / 提示音 / 自动接下一档）确实可以像
+ * home_prefs 那样塞一列 JSON——但番茄钟还有**事实**要存：
+ * 完成了哪一档、哪一天、多久。偏好是一行 JSON，事实是**多行**，
+ * 两者不进同一个形状。所以事实走新表，偏好走 settings 的一列 JSON
+ * （与 home_prefs / journal_prefs 同一个形态）。
+ *
+ * ---- 表结构 ----
+ *
+ *   phase        哪一档（focus / break / bpm），是事实的一部分：
+ *                一个 25 分钟与一个 1 分钟的专注不是同一件事；
+ *   local_date   完成那一刻的业务日（与 checkins / journal_entries 同口径，
+ *                走 day_start_hour）。今天 N 个按它数；
+ *   start_at / completed_at / elapsed_ms  起点与终点（真实时钟），
+ *                elapsed 扣掉了暂停——「实际专注了多久」用这个数；
+ *   paused_ms    暂掉的总时长。留它是因为 elapsed 可以从三列推算，
+ *                推算式写错一次就静默歪了；存下来是冗余换可核对。
+ *
+ * 没有外键：番茄钟不绑任务（见 domain/pomodoro.ts 的注释）。
+ * player_id 仍要——备份导入的行级校验与其他表同一个口径。
+ *
+ * 进行中的番茄**不落库**：它活在内存里，App 被杀就没了。
+ * 一个没完成的 25 分钟不是用户做过的事，重启后页面上
+ * 「从零开始」比「还剩 18 分钟」诚实。
+ */
+export const POMODOROS_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS pomodoros (
+  id           TEXT PRIMARY KEY NOT NULL,
+  player_id    TEXT NOT NULL REFERENCES player(id) ON DELETE CASCADE,
+  phase        TEXT NOT NULL
+                 CHECK (phase IN ('focus','break','bpm')),
+  local_date   TEXT NOT NULL
+                 CHECK (local_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+  start_at     INTEGER NOT NULL,
+  completed_at INTEGER NOT NULL,
+  elapsed_ms   INTEGER NOT NULL CHECK (elapsed_ms > 0),
+  paused_ms    INTEGER NOT NULL DEFAULT 0 CHECK (paused_ms >= 0),
+  created_at   INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_pomodoros_date
+  ON pomodoros (player_id, local_date);
+`;
+
+/** 17 → 18：pomodoros 表 + settings 的番茄偏好列（D68） */
+export const MIGRATE_V17_TO_V18_SQL = `
+${POMODOROS_TABLE_SQL}
+ALTER TABLE settings ADD COLUMN pomodoro_prefs TEXT NOT NULL DEFAULT '{}';
+`;

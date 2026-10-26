@@ -18,7 +18,7 @@
  */
 import { runInTransaction } from '../db/client';
 import { getPlayerSnapshot, updatePlayer } from '../db/repo/player';
-import { createTask, listRewards, updateTaskStatus, type Task } from '../db/repo/tasks';
+import { createTask, getTaskById, listRewards, updateTaskStatus, type Task } from '../db/repo/tasks';
 import {
   applyPurchase,
   applyRefine,
@@ -233,13 +233,10 @@ export function getShopBalances(): ShopBalances {
  *
  * ---- 为什么兑换走打卡那条路，而不是直接扣钱 ----
  *
- * 兑换 = 写一条 `checkins` 行（`score.ts` 里 reward 类型：0 XP、0 余烬、
- * 0 属性，只扣 `ember_cost`）+ 把任务置为 done。
- * 走同一条路的好处：
- *   1. **撤销天然可用**——虽然 `undoCheckin` 对 reward 返回 UNSUPPORTED，
- *      但事实行在，以后要支持退还只是补一段逻辑，不用改数据结构；
- *   2. 月度奖励、统计、导出都已经在数 checkins，兑换不需要另开一条链路；
- *      而「奖励兑换」在统计里显示成一次记录，也是对的（它是你做过的事）。
+ * 数据层与算分早就支持（`score.ts` 里 reward 类型：0 XP、只扣 `ember_cost`），
+ * 但**这一版兑换不写 checkins 行**——理由见下面 `redeemCustomReward` 的注释：
+ * 没有退还的这一版，写事实行只会多一条要维护的记录。
+ * 以后要支持退还时再补事实行，不用改数据结构。
  *
  * ---- 为什么不给奖励加次数上限 ----
  *
@@ -313,18 +310,43 @@ export function createCustomReward(draft: {
 }
 
 /**
- * 兑换一条奖励：扣余烬 + 把它标记为完成。
+ * 兑换一条奖励：验证 → 扣余烬 + 把它标记为完成。
  *
- * 只做这两件事，不写 checkins 行——理由见本段开头的注释：
- * 这一版没有「退还」，写事实行只会多一条要维护的记录。
- * 等要做退还时，那时再补。
+ * 只做这两件事，不写 checkins 行：
+ *   1. **没有退还**（D53 明知的代价）：写事实行只会多一条要维护的记录，
+ *      等要做退还时再补——届时把 `undoCheckin` 的 reward 分支从
+ *      UNSUPPORTED 改成真退还即可，不用改数据结构；
+ *   2. 兑换**不进统计**：统计页不数它，也算可接受（D53 的代价栏）。
+ *
+ * ---- 为什么兑换前要重新查一遍任务 ----
+ *
+ * 界面传来的 `rewardId` 来自列表快照：从读列表到点「兑」之间，
+ * 那条奖励可能已经在别处被删（软删除）或兑换过了。
+ * 不查就扣钱的话：`updateTaskStatus` 对不存在/已删的 id 是
+ * **静默 no-op**（UPDATE 带 `WHERE deleted_at IS NULL`），
+ * 结果是「余烬扣了，奖励没兑」——而这个 App 又没有退款路径，
+ * 用户只能自认。所以先验再扣，状态不对时一个余烬都不动。
  */
 export type RedeemResult =
   | { ok: true; ember: number; message: string }
-  | { ok: false; reason: 'INSUFFICIENT_EMBER' | 'NOT_FOUND' | 'FAILED'; message: string };
+  | {
+      ok: false;
+      reason: 'INSUFFICIENT_EMBER' | 'NOT_FOUND' | 'FAILED';
+      message: string;
+    };
 
 export function redeemCustomReward(rewardId: string, emberCost: number): RedeemResult {
   return runInTransaction(() => {
+    // 先验证任务还在、还是一条未兑换的奖励。不在就分文不动
+    const task = getTaskById(rewardId);
+    if (!task || task.type !== 'reward' || task.status === 'done') {
+      return {
+        ok: false as const,
+        reason: 'NOT_FOUND' as const,
+        message: '这条奖励已经不在了，刷新一下看看。',
+      };
+    }
+
     const player = getPlayerSnapshot();
     const check = checkRedeem(emberCost, player.ember);
     if (!check.ok) {

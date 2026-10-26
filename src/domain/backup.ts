@@ -136,6 +136,8 @@ export const BACKUP_TABLES: readonly BackupTableSpec[] = [
       'home_prefs',
       // journal_prefs 是 v16 才有的列（D65）。同 home_prefs：漏了会静默丢偏好
       'journal_prefs',
+      // pomodoro_prefs 是 v18 才有的列（D68）。同上：漏了静默丢偏好
+      'pomodoro_prefs',
       'max_seen_utc', 'last_time_zone', 'created_at', 'updated_at',
     ],
     required: ['id', 'player_id', 'day_start_hour'],
@@ -248,6 +250,15 @@ export const BACKUP_TABLES: readonly BackupTableSpec[] = [
     sinceSchemaVersion: 14,
     columns: ['local_date', 'body', 'created_at', 'updated_at'],
     required: ['local_date'],
+  },
+  {
+    // 番茄钟完成记录（D68，v18 才有）。同 journal_entries 的理由：
+    // 旧备份里没有这张表是正常的，按空表处理；到了 v18 之后再缺才是文件坏了。
+    // 漏掉它 = 用户导出再导入，专注历史静默消失（铁律二）。
+    name: 'pomodoros',
+    sinceSchemaVersion: 18,
+    columns: ['id', 'player_id', 'phase', 'local_date', 'start_at', 'completed_at', 'elapsed_ms', 'paused_ms', 'created_at'],
+    required: ['id', 'player_id', 'phase', 'local_date', 'start_at', 'completed_at', 'elapsed_ms'],
   },
 ];
 

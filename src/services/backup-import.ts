@@ -228,6 +228,7 @@ function replaceAllData(payload: BackupPayload): void {
   db.execSync('DELETE FROM reviews;');
   db.execSync('DELETE FROM month_reviews;');
   db.execSync('DELETE FROM journal_entries;');
+  db.execSync('DELETE FROM pomodoros;');
   db.execSync('DELETE FROM checkins;');
   db.execSync('DELETE FROM tasks;');
   db.execSync('DELETE FROM goals;');

@@ -61,6 +61,7 @@ const TABLES: ReadonlyArray<{ name: string; orderBy: string }> = [
   { name: 'checkins', orderBy: 'created_at' },
   { name: 'goals', orderBy: 'created_at' },
   /*
+  /*
    * 连胜的桥接日（D38）。
    *
    * 必须导出：它是「哪几天被宽限券或修复桥接过」的唯一记录，
@@ -79,6 +80,9 @@ const TABLES: ReadonlyArray<{ name: string; orderBy: string }> = [
   { name: 'month_reviews', orderBy: 'month_key' },
   // 日记（D49）。一天一条，主键是业务日，所以按它排序就足够稳定。
   { name: 'journal_entries', orderBy: 'local_date' },
+  // 番茄钟完成记录（D68）。一次专注一行，按完成时间排——它没有主键日期
+  // 复合业务约束，但导出两次要能逐字节比对，排序键必须稳定
+  { name: 'pomodoros', orderBy: 'completed_at' },
 ];
 
 /**

@@ -37,11 +37,12 @@ import {
   MIGRATE_V14_TO_V15_SQL,
   MIGRATE_V15_TO_V16_SQL,
   MIGRATE_V16_TO_V17_SQL,
+  MIGRATE_V17_TO_V18_SQL,
   SCHEMA_SQL_V1,
 } from './schema';
 
 /** 代码期望的 schema 版本。每次新增迁移，这里要同步 +1。 */
-export const CURRENT_SCHEMA_VERSION = 17;
+export const CURRENT_SCHEMA_VERSION = 18;
 
 /**
  * 迁移函数数组。
@@ -260,6 +261,16 @@ const MIGRATIONS: ReadonlyArray<(db: SQLiteDatabase) => void> = [
     const columns = db.getAllSync<{ name: string }>(`PRAGMA table_info(settings)`);
     if (columns.some((column) => column.name === 'journal_prefs')) return;
     db.execSync(MIGRATE_V16_TO_V17_SQL);
+  },
+
+  // 17 → 18：番茄钟（D68）。pomodoros 表 + settings 的 pomodoro_prefs 列。
+  // 守卫查的是**列**不是表：CREATE TABLE IF NOT EXISTS 本身就是幂等的，
+  // 真正会抛 duplicate column 的是 ALTER；而且「表在、列不在」的残缺状态
+  // 是可能出现的（migrate-old-test 专门模拟了它），查表会漏补那一列。
+  (db) => {
+    const columns = db.getAllSync<{ name: string }>(`PRAGMA table_info(settings)`);
+    if (columns.some((column) => column.name === 'pomodoro_prefs')) return;
+    db.execSync(MIGRATE_V17_TO_V18_SQL);
   },
 ];
 

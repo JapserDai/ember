@@ -13,7 +13,7 @@
 用户是近乎零基础的自学者，靠 AI 写代码。**所有代码注释、所有文档、所有界面文案必须是中文。**
 
 **当前进度**：阶段 0–5 **全部完成**；阶段 6 完成 **7/9**（只剩「商店截图」与「真机手测」——两件都只差一台真机）。
-**代码状态**（2026-10-27 实测）：`tsc` **0 错误**、`expo export` **通过**（3.5MB .hbc）、`npx expo start` 起得来、仓库外 **1163 项断言全绿**（21 个套件）。
+**代码状态**（2026-10-27 实测）：`tsc` **0 错误**、`expo export` **通过**（3.5MB .hbc）、`npx expo start` 起得来、仓库外 **1218 项断言全绿**（22 个套件）。
 
 **2026-10-26 上一轮（D48 / D49）**：底栏从「今天/目标/回忆/我的」改成「**今天/状态/日记/我的**」。
 「目标」换成照抄人升（LifeUp）的「**状态**」页（人生等级 + 五维属性条 + 称号），目标降为二级页（入口在「我的」）；
@@ -69,7 +69,7 @@ D1–D7 引导（迁移 v12→v13）、GitHub Pages 落地页（可点的火带�
 cd C:/Users/16907/Ember
 npx tsc --noEmit                              # 期望：无输出
 npx expo export --platform android --max-workers 1   # 期望：成功，约 3.5MB .hbc
-sh "C:/Users/16907/AppData/Local/Temp/ember-check/run-all.sh"  # 期望：21 个套件全绿（1163 项）
+sh "C:/Users/16907/AppData/Local/Temp/ember-check/run-all.sh"  # 期望：22 个套件全绿（1218 项）
 ```
 
 第三条是**仓库外**的临时测试（见 §7）。它在 `%TEMP%` 下，不进 git——如果那台机器上已经没有了，§7 写了怎么重建。
@@ -80,7 +80,7 @@ sh "C:/Users/16907/AppData/Local/Temp/ember-check/run-all.sh"  # 期望：21 个
 | --- | --- |
 | `npx tsc --noEmit` | 0 错误 |
 | `npx expo export` | 成功，3.5MB `.hbc` |
-| `run-all.sh` | 21 套件 / 1163 项断言全绿（2026-10-27；`home-prefs-test` 80 项、`simplify-test` 75 项、`migrate-old-test` 21 项） |
+| `run-all.sh` | 22 套件 / 1218 项断言全绿（2026-10-27；`home-prefs-test` 80 项、`simplify-test` 76 项、`migrate-old-test` 21 项、`pomodoro-test` 54 项） |
 | `npx expo start` + 请求 dev bundle | HTTP 200，路由里含 `(tabs)/status`、`(tabs)/journal`、`goals/index` |
 
 > **上一版文档说「tsc 0 错误、193 项全绿」是错的。** 接手时实测到 **9 个 tsc 错误**
@@ -239,11 +239,11 @@ app/                          页面（expo-router 文件路由）
   tasks/new.tsx               新建任务（必填只有名字）
 
 src/db/
-  schema.ts                   ★ 建表 SQL + 全部迁移常量（铁律一）。现到 v15
-  migrate.ts                  ★ 手写迁移器（PRAGMA user_version），CURRENT_SCHEMA_VERSION = 15
+  schema.ts                   ★ 建表 SQL + 全部迁移常量（铁律一）。现到 v17
+  migrate.ts                  ★ 手写迁移器（PRAGMA user_version），CURRENT_SCHEMA_VERSION = 17
   client.ts                   单例连接、PRAGMA、runInTransaction
   seed.ts                     首次启动：player 1 行 + settings 1 行
-  repo/{player,settings,tasks,checkins,goals,streak,reviews,journal}.ts   单表读写
+  repo/{player,settings,tasks,checkins,goals,streak,reviews,journal,pomodoros}.ts   单表读写
 
 src/content/                  叙事内容（纯数据，加内容不改代码）
   stories.ts                  四季故事（24 段，累计天数解锁）
@@ -302,9 +302,12 @@ src/services/                 编排（事务在这里）
   reminders.ts                ★ 唯一碰通知 API 的地方（任务提醒 + 周复盘提醒）
   calendar.ts                 ★ 月历的读数（有记录的日子 / 某一天的明细，D57）
   homePrefs.ts                ★ 首页偏好的读写（D62）：读失败退回默认值，写失败抛错
+  journalPrefs.ts             ★ 日记偏好的读写（D65）：同上
+  pomodoroPrefs.ts            ★ 番茄钟偏好的读写（D68）：同上
+  pomodoro.ts                 ★ 番茄钟的编排（D68）：完成落库（当日上限在事务里）、今日读数
 
 src/components/               Card（全 App 唯一的「框」）、TodoCard、TodoCheckbox、
-                              TaskRow、HearthBar、AwardFloat、AddButton、QuickStart、
+                              TaskRow、HearthBar、AwardFloat、AddButton、
                               StatBarList、SettingsRow、PlayerAvatar、AvatarPickerSheet、
                               DueDateField、TabBarIcon、StageNote、EmberMeter、StreakRepairCard、
                               ExportCardView（导出卡片版式）、GuideCardView（D1–D7 卡片）、
@@ -355,7 +358,7 @@ site/                        落地页（GitHub Pages 的站点本体，无构�
 | 3-2 | 周复盘（三个固定问题、跳过不惩罚、周日提醒） | D42 |
 | 3-3 | 月复盘（月末最后一个周六、只做「看」） | D42 |
 | 3-4 | 周报导出（**文字版 + 图片版**） | **D39 → D43** |
-| 4-1 | 主题四套（白 / 夜航 / 苔原 / 晨光） | **D40** |
+| 4-1 | 主题四套（白 / 夜航 / 苔原 / 晨光） | **D40**（**D59 起砍到两套：白 / 夜航**，旧值由 `PALETTE_ALIASES` 兼容） |
 | 4-2 | 复盘卡（版式 + 图片导出） | **D43** |
 | 4-3/4 | 称号（15 个）+ 称号图鉴 | D41 |
 | 4-5/6 | 商店（只卖材料）+ 材料合成（3:1 固定） | D41 |
@@ -492,7 +495,7 @@ ESB="C:/Users/16907/AppData/Local/npm-cache/_npx/beb367dfa21eb3f5/node_modules/.
 EMBER_TMP=$(mktemp -d) node xxx-test.js
 ```
 
-现成的 **21 个套件**（共 **1163 项**断言，`run-all.sh` 一次跑完）：
+现成的 **22 个套件**（共 **1218 项**断言，`run-all.sh` 一次跑完）：
 
 | 套件 | 项数 | 覆盖 |
 | --- | --- | --- |
@@ -630,10 +633,10 @@ D43–D50 全部在这一次提交里，包括 D48/D49 的 tab 改造（`status.
 4. **D53 商店 v15**（`player` 三列、`shop.ts`、`ShopMark`、`shop-test`）。
 5. **D54 「看更早的」目录页**（`app/journal/history.tsx`、`src/services/journalHandoff.ts`、
    `getJournalPage` / `getJournalDay` / `listJournalEntriesBefore`；状态页删掉「看全部称号」入口）。
-   这一项改完 `tsc` 0 错误、`expo export` 通过、21 套件 1163 项断言全绿。
+   这一项改完 `tsc` 0 错误、`expo export` 通过、22 套件 1218 项断言全绿。
 
 > **断言总数现在从代码算，不从文档抄。** `run-all.sh` 的输出把每套件的「N 通过」加起来就是总数
-> （2026-10-27 实测 1163）。文档里这一串数字已经错过两次，改套件后**顺手重算一次**。
+> （2026-10-27 实测 1164）。文档里这一串数字已经错过两次，改套件后**顺手重算一次**。
 
 `@jasperdai__ember.jks` / `.bak.jks` 被 `.gitignore` 排除（`*.jks`），不会被误提交。
 `dist/` 与 `.expo/` 也在 .gitignore 里。**`site/` 不在 .gitignore 里**——它是要发布的东西。

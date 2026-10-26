@@ -29,6 +29,8 @@ export interface SettingsRow {
   home_prefs: string;
   /** 日记偏好（JSON 字符串，D65）。'{}' = 全用代码默认 */
   journal_prefs: string;
+  /** 番茄钟偏好（JSON 字符串，D68）。'{}' = 全用代码默认 */
+  pomodoro_prefs: string;
   /** 见过的最大时间戳，用于检测系统时间回拨 */
   max_seen_utc: number;
   last_time_zone: string | null;
@@ -53,6 +55,8 @@ export interface SettingsPatch {
   homePrefs?: string;
   /** 日记偏好 JSON。同上 */
   journalPrefs?: string;
+  /** 番茄钟偏好 JSON。同上（D68） */
+  pomodoroPrefs?: string;
   maxSeenUtc?: number;
   lastTimeZone?: string | null;
 }
@@ -74,6 +78,7 @@ const COLUMN_MAP: Record<keyof SettingsPatch, string> = {
   hapticsEnabled: 'haptics_enabled',
   homePrefs: 'home_prefs',
   journalPrefs: 'journal_prefs',
+  pomodoroPrefs: 'pomodoro_prefs',
   maxSeenUtc: 'max_seen_utc',
   lastTimeZone: 'last_time_zone',
 };
@@ -83,7 +88,7 @@ export function getSettings(): SettingsRow {
   const row = getDb().getFirstSync<SettingsRow>(
     `SELECT id, player_id, day_start_hour, last_settled_date, week_starts_on,
             difficulty, theme_id, theme_mode, reduce_motion, haptics_enabled,
-            home_prefs, journal_prefs, max_seen_utc, last_time_zone, created_at, updated_at
+            home_prefs, journal_prefs, pomodoro_prefs, max_seen_utc, last_time_zone, created_at, updated_at
        FROM settings
       WHERE id = 'singleton'`
   );

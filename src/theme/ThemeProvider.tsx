@@ -1,5 +1,12 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import { useWindowDimensions } from 'react-native';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+import { AccessibilityInfo, useWindowDimensions } from 'react-native';
 
 import { updateSettings } from '../db/repo/settings';
 import {
@@ -16,7 +23,21 @@ import {
 /**
  * 主题上下文。
  *
- * 职责：把 token 交给界面，并持有「减少动效」这一个用户设置。
+ * 职责：把 token 交给界面，并持有「减少动效」这一读数。
+ *
+ * ---- D66：动效不再是用户设置，改为跟随系统 ----
+ *
+ * D66 删掉了「设置 → 动效」开关，本条的补偿方案（记录里写明）：改为跟随
+ * 系统的无障碍设置（Android 的「移除动画」）。这里在挂载时读一次
+ * `AccessibilityInfo.isReduceMotionEnabled`，之后监听它的变化事件。
+ * 之前那个把值写进 `settings.reduce_motion` 的 `setReduceMotion` 已删：
+ * 它再没有任何调用方，留着就会有一天被某个新界面接回去，
+ * 「跟随系统」悄悄变回「App 内开关」。想恢复开关的那天，
+ * 在设置页加一行 SettingsRow 并在这里把系统源与用户源合并——只改这一个文件。
+ *
+ * `settings.reduce_motion` 列因此成为又一个「存在但没人写」的列
+ * （同 `haptics_enabled`、`theme_mode`）：迁移已发布，按 D31 不删。
+ * 备份白名单里仍有它——导入一份旧备份带着旧开关值也无妨，没人读它。
  *
  * ---- 这一版删掉了什么 ----
  *
@@ -62,27 +83,30 @@ export interface ThemeContextValue {
   themeId: ThemeId;
   /** 切主题。先写库再改内存态 */
   setThemeId: (id: ThemeId) => void;
-  /** 减少动效：为 true 时组件跳过位移、缩放、粒子，只保留淡入淡出 */
+  /** 减少动效：系统无障碍设置（Android「移除动画」）开启时，组件跳过位移、缩放、粒子，只保留淡入淡出 */
   reduceMotion: boolean;
-  setReduceMotion: (value: boolean) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export interface ThemeProviderProps {
   children: React.ReactNode;
-  /** 初始的减少动效设置，对应 settings.reduce_motion */
-  initialReduceMotion?: boolean;
   /** 初始主题，对应 settings.theme_id */
   initialThemeId?: string;
 }
 
 export function ThemeProvider({
   children,
-  initialReduceMotion = false,
   initialThemeId = DEFAULT_THEME_ID,
 }: ThemeProviderProps) {
-  const [reduceMotion, setReduceMotionState] = useState(initialReduceMotion);
+  /*
+   * 减少动效跟随系统（D66 补偿方案的落实）。
+   *
+   * 初始值取 false：系统设置是异步读的，第一帧先按「无」渲染，
+   * 拿到真值后由下面的 effect 改正。系统开着「移除动画」的用户
+   * 第一帧可能看到一个动画——300ms 级别、可接受。
+   */
+  const [reduceMotion, setReduceMotion] = useState(false);
   /**
    * 当前主题 id。
    *
@@ -97,20 +121,34 @@ export function ThemeProvider({
    */
   const { fontScale } = useWindowDimensions();
 
-  const setReduceMotion = useCallback((value: boolean) => {
-    updateSettings({ reduceMotion: value });
-    setReduceMotionState(value);
+  /**
+   * 读一次系统设置并持续监听。
+   *
+   * - 挂载时先读一次（isReduceMotionEnabled 是异步的）；
+   * - `reduceMotionChanged` 在用户改系统设置、或 Android 上切到分屏/画中画
+   *   等场景时会发，照实跟；
+   * - 两处都要防泄漏，卸载时统一摘除。
+   */
+  useEffect(() => {
+    let mounted = true;
+    const sub = AccessibilityInfo.addEventListener(
+      'reduceMotionChanged',
+      setReduceMotion
+    );
+    AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (mounted) setReduceMotion(enabled);
+    });
+    return () => {
+      mounted = false;
+      sub.remove();
+    };
   }, []);
 
   /**
    * 切主题。
    *
-   * 与减少动效同一条规矩：**先写库、再改内存态**。
-   * 反过来的话，写库失败时界面已经变了，用户会以为设置成功，
-   * 下次打开却变回去——一个会自己忘事的设置比不能改更糟。
-   *
    * 只写 theme_id 一个字段：`theme_mode`（深浅）这一版不做，
-   * 因为四套主题里已经各自包含了它自己的深浅（见 tokens.ts 的注释）。
+   * 因为两套主题里已经各自包含了它自己的深浅（见 tokens.ts 的注释）。
    */
   const setThemeId = useCallback((id: ThemeId) => {
     const next = normalizeThemeId(id);
@@ -144,9 +182,8 @@ export function ThemeProvider({
       themeId,
       setThemeId,
       reduceMotion,
-      setReduceMotion,
     };
-  }, [fontScale, themeId, setThemeId, reduceMotion, setReduceMotion]);
+  }, [fontScale, themeId, setThemeId, reduceMotion]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

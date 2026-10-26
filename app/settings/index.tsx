@@ -135,11 +135,13 @@ export default function SettingsScreen() {
    *   2. 回到「今天」页能看到的只有一处（记录时的飘字），
    *      其余要么只闪 280ms、要么根本触发不到。
    *
-   * 所以开关从界面上消失了。`settings.reduce_motion` 列仍然留在表里
-   * （D31：已发布的建表常量不许改），`ThemeProvider` 仍然持有这个值，
-   * 六个组件仍然读它——**行为一点没变**，只是没有入口了。
-   * 将来想接回来（比如改成三档，或做成跟随系统的无障碍设置），
-   * 在这里加一行 `SettingsRow` 就行，不需要动任何组件。
+   * 所以开关从界面上消失了，并按 D66 记录的补偿方案改成**跟随系统**：
+   * `ThemeProvider` 现在读 `AccessibilityInfo`（Android 的「移除动画」），
+   * 不再读库。`settings.reduce_motion` 列仍留在表里（D31：已发布的
+   * 建表常量不许改），但没有任何写入方。六个组件照旧读 `reduceMotion`，
+   * 不需要动——系统开了「移除动画」的用户，动效自然全停。
+   * 将来若要恢复 App 内开关，在这里加一行 `SettingsRow`，
+   * 并在 `ThemeProvider` 里把系统源与用户源合并——只改这两个文件。
    */
 
   /**
@@ -254,6 +256,18 @@ export default function SettingsScreen() {
           value: '字数上限 / 历史条数',
           state: 'interactive',
           onPress: () => router.push('/settings/journal'),
+        },
+        /*
+         * 番茄钟设置（D68）。三项：默认档 / 完成音 / 自动接下一档。
+         * 默认档其实已经在番茄钟页里换档时顺手记住了——这一页给的是
+         * 一个改主意的入口，不另设页面就重复了，所以它只放三项里
+         * 另外两项没有的那个 + 默认档的兜底。
+         */
+        {
+          label: '番茄钟',
+          value: '默认档 / 完成音 / 自动接续',
+          state: 'interactive',
+          onPress: () => router.push('/settings/pomodoro'),
         },
       ],
     },
