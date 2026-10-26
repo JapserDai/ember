@@ -1,0 +1,893 @@
+/* ==========================================================================
+   Ember 落地页
+   --------------------------------------------------------------------------
+   配色直接取自 App 自己（src/theme/tokens.ts 的「白」那一套），不另起一套：
+   访客在页面上看到的蓝，和装完打开 App 看到的蓝是同一个蓝。
+     #FAF9F8  页面底（Fluent neutralLighter，极淡的暖灰）
+     #FFFFFF  卡片 / 面板
+     #323130  正文
+     #2564CF  唯一的主色：可点的东西
+     #1B4A94  暗调主色 = 火带的颜色（App 里「深 = 热」，火不是橙色的）
+
+   字体两族，各有分工：
+     标题用中文衬线（宋体系）——这是一份记录，不是一个仪表盘；
+     正文与界面用系统无衬线——这部分是「App 本身」。
+   两者不混用，所以不会显得是随手搭的。
+
+   页面不加载任何外部资源：没有字体 CDN、没有统计脚本、没有追踪像素。
+   这与 App 的「不联网」是同一条立场，页脚那句话说的就是这件事。
+   ========================================================================== */
+
+:root {
+  /* 色板：与 App 一致 */
+  --bg: #faf9f8;
+  --surface: #ffffff;
+  --ink: #323130;
+  --ink-soft: #5c5a58;
+  --ink-muted: #6f6d6a;
+  --primary: #2564cf;
+  --primary-deep: #1b4a94;
+  --primary-wash: #eef3fc;
+  --rule: rgba(50, 49, 48, 0.12);
+  --rule-strong: rgba(50, 49, 48, 0.2);
+  /* 与 App 的 palette.danger 同值（#A4262C）。只用于「删」这一种动作 */
+  --danger: #a4262c;
+
+  /* 字体 */
+  --serif: "Songti SC", "Source Han Serif SC", "Noto Serif CJK SC",
+    "Noto Serif SC", "SimSun", Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+
+  /* 排版尺度 */
+  --measure: 34rem;
+  --page-x: clamp(1.25rem, 5vw, 3.5rem);
+  --gap-section: clamp(4rem, 9vw, 7rem);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 1rem;
+  line-height: 1.8;
+  /* 中文正文不需要连字，但要避免某些浏览器把中文按西文规则断词 */
+  text-rendering: optimizeLegibility;
+}
+
+/* 键盘用户的第一站：跳转链接，平时藏起来 */
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--primary);
+  color: #fff;
+  padding: 0.75rem 1rem;
+  z-index: 100;
+}
+.skip:focus {
+  left: 1rem;
+  top: 1rem;
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+a {
+  color: var(--primary);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.22em;
+}
+
+.wrap {
+  width: 100%;
+  max-width: 68rem;
+  margin: 0 auto;
+  padding-left: var(--page-x);
+  padding-right: var(--page-x);
+}
+
+/* ============================ 顶栏 ============================ */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgba(250, 249, 248, 0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--rule);
+}
+
+.topbar-in {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  min-height: 3.5rem;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.brand-mark {
+  width: 1.375rem;
+  height: 1.375rem;
+  /* 火花是**实心**的，不是描边的：与 App 的 `components/SparkMark`、
+     `assets/icon.png` 同一个形状（`src/domain/spark.ts` 的 SPARK_PATH）。
+     描边在小尺寸下会糊成灰，而记号经常压在任意底色上。 */
+  fill: var(--primary);
+}
+
+.topnav {
+  display: flex;
+  gap: 1.5rem;
+  font-size: 0.9375rem;
+}
+
+.topnav a {
+  color: var(--ink-soft);
+  text-decoration: none;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid transparent;
+}
+
+.topnav a:hover {
+  color: var(--ink);
+  border-bottom-color: var(--rule-strong);
+}
+
+@media (max-width: 40rem) {
+  .topnav {
+    display: none;
+  }
+}
+
+/* ============================ 首屏 ============================ */
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: clamp(2.5rem, 6vw, 5rem);
+  align-items: start;
+  padding-top: clamp(3rem, 7vw, 5.5rem);
+  padding-bottom: var(--gap-section);
+}
+
+@media (max-width: 56rem) {
+  .hero {
+    grid-template-columns: 1fr;
+  }
+}
+
+h1 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: clamp(2rem, 4.4vw, 3.15rem);
+  font-weight: 600;
+  line-height: 1.28;
+  letter-spacing: -0.01em;
+  /* 中文标题不做负字距：汉字是方块，压紧了会连成一片 */
+  text-wrap: balance;
+}
+
+.lede {
+  margin: 1.5rem 0 0;
+  max-width: var(--measure);
+  font-size: 1.0625rem;
+  line-height: 1.9;
+  color: var(--ink-soft);
+}
+
+.lede-2 {
+  margin-top: 1rem;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 2.25rem;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3rem;
+  padding: 0 1.5rem;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: #fff;
+  border: 1px solid var(--primary);
+}
+
+.btn-primary:hover {
+  background: var(--primary-deep);
+  border-color: var(--primary-deep);
+}
+
+.btn-primary[aria-disabled="true"] {
+  background: transparent;
+  color: var(--ink-muted);
+  border: 1px dashed var(--rule-strong);
+  cursor: not-allowed;
+}
+
+.btn-quiet {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--rule-strong);
+}
+
+.btn-quiet:hover {
+  border-color: var(--ink-muted);
+}
+
+.note {
+  margin: 0.9rem 0 0;
+  min-height: 1.4em;
+  font-size: 0.875rem;
+  color: var(--ink-muted);
+}
+
+/* ===================== 演示面板（首页的骨架） ===================== */
+
+.demo {
+  background: var(--surface);
+  border-radius: 4px;
+  padding: 1.5rem 1.5rem 1.25rem;
+  box-shadow: 0 1.6px 3.6px rgba(0, 0, 0, 0.05),
+    0 0.3px 0.9px rgba(0, 0, 0, 0.04);
+  /* 演示面板是「一张纸」，不需要描边 */
+}
+
+.demo-head {
+  margin-bottom: 1.25rem;
+}
+
+.demo-title {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.demo-date {
+  margin: 0.15rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+}
+
+/* ---- 火带 ----
+   白纸上的火不是橙色的：深 = 热。已烧段用 primary-deep，火头再深一档。
+   这与 App 的 HearthBar 是同一条规则，不是这里临时想的配色。 */
+
+.hearth {
+  position: relative;
+  height: 10px;
+  margin: 0.25rem 0 0;
+}
+
+.hearth-track {
+  position: absolute;
+  inset: 50% 0 auto;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 1px;
+  background: var(--ink);
+  opacity: 0.08;
+}
+
+.hearth-lit {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 7px;
+  margin-top: -3.5px;
+  width: 0;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--primary-deep), var(--primary));
+  transition: width 420ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* 炉膛：一件都没做时左端也有一小簇火 */
+.hearth-glow {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.hearth-glow-a {
+  left: -12px;
+  top: 50%;
+  width: 34px;
+  height: 34px;
+  margin-top: -17px;
+  background: radial-gradient(
+    circle,
+    rgba(37, 100, 207, 0.28) 0%,
+    rgba(37, 100, 207, 0.12) 45%,
+    rgba(37, 100, 207, 0) 72%
+  );
+}
+
+.hearth-glow-b {
+  left: 0;
+  top: 50%;
+  width: 40px;
+  height: 40px;
+  margin-top: -20px;
+  margin-left: -20px;
+  opacity: 0;
+  background: radial-gradient(
+    circle,
+    rgba(27, 74, 148, 0.3) 0%,
+    rgba(27, 74, 148, 0.12) 45%,
+    rgba(27, 74, 148, 0) 72%
+  );
+  transition: left 420ms cubic-bezier(0.22, 0.61, 0.36, 1), opacity 240ms ease;
+}
+
+/* 记录完成时火头亮一下。这是全页唯一的编排动效 */
+.hearth-flare {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 34px;
+  height: 34px;
+  margin-top: -17px;
+  margin-left: -17px;
+  border-radius: 50%;
+  background: var(--primary-deep);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hearth-flare.on {
+  animation: flare 620ms ease-out;
+}
+
+@keyframes flare {
+  0% {
+    opacity: 0.26;
+    transform: scale(0.6);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+.hearth-caption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.6rem;
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+  min-height: 1.5em;
+}
+
+.hearth-award {
+  color: var(--primary);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.hearth-award.on {
+  opacity: 1;
+}
+
+/* ---- 习惯行 ---- */
+
+.habit-list {
+  list-style: none;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.habit {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--rule);
+  /* 长按撤销：不要触发系统的选择与放大镜 */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.habit:last-child {
+  border-bottom: none;
+}
+
+/* 只有圈可点（与 App 一致：整行不可点） */
+.habit-circle {
+  flex: 0 0 auto;
+  width: 1.375rem;
+  height: 1.375rem;
+  padding: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink-muted);
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.habit-circle:hover {
+  border-color: var(--primary);
+}
+
+.habit-circle::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--primary);
+  opacity: 0;
+  transform: scale(0.4);
+  transition: opacity 140ms ease, transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.habit.done .habit-circle {
+  border-color: var(--primary);
+}
+
+.habit.done .habit-circle::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.habit-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.habit-title {
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  /* 完成的习惯「退到灰里」，不划删除线（App 的 D13） */
+  transition: color 160ms ease;
+}
+
+.habit.done .habit-title {
+  color: var(--ink-muted);
+}
+
+.habit-streak {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 撤销提示：长按已记的行时浮出 */
+.habit-undo {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  color: var(--primary);
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.habit.done.pressing .habit-undo {
+  opacity: 1;
+}
+
+/* 飘字：+26 从圆圈旁边升起 */
+.float {
+  position: absolute;
+  left: 1.75rem;
+  top: 50%;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  animation: rise 760ms ease-out forwards;
+}
+
+@keyframes rise {
+  0% {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+}
+
+.demo-hint {
+  margin: 1rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.7;
+  color: var(--ink-muted);
+}
+
+/* ============================ 段落 ============================ */
+
+.section {
+  padding-top: var(--gap-section);
+  border-top: 1px solid var(--rule);
+}
+
+.section h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: clamp(1.4rem, 2.6vw, 1.85rem);
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.005em;
+}
+
+.section-lede {
+  margin: 0.9rem 0 0;
+  max-width: var(--measure);
+  color: var(--ink-soft);
+}
+
+/* ---- 定义列表：三条底线 / 数据在哪 ----
+   不用卡片：这些是「同一件事的三个面」，卡片会把它们切成三块互不相干的东西。
+   用一条左侧竖线做归属，比三个同款圆角盒子诚实。 */
+
+.defs {
+  margin: 2.5rem 0 0;
+  display: grid;
+  gap: 2.25rem;
+}
+
+.def {
+  display: grid;
+  grid-template-columns: minmax(0, 12rem) minmax(0, 1fr);
+  gap: 0.5rem 2.5rem;
+  align-items: start;
+}
+
+@media (max-width: 44rem) {
+  .def {
+    grid-template-columns: 1fr;
+    gap: 0.4rem;
+  }
+}
+
+.def dt {
+  font-family: var(--serif);
+  font-size: 1.1875rem;
+  font-weight: 600;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.def dd {
+  margin: 0;
+  max-width: var(--measure);
+  color: var(--ink-soft);
+}
+
+/* ---- 拒绝清单 ---- */
+
+.refusals {
+  margin: 2.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 1.5rem;
+  max-width: 46rem;
+}
+
+.refusals li {
+  padding-left: 1.25rem;
+  border-left: 2px solid var(--rule-strong);
+  color: var(--ink-soft);
+}
+
+.refusals strong {
+  display: block;
+  color: var(--ink);
+  font-weight: 600;
+  margin-bottom: 0.15rem;
+}
+
+/* ---- 安装步骤 ----
+   这里用编号是合理的：它真的是一段有先后顺序的流程。 */
+
+.steps {
+  margin: 2.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  display: grid;
+  gap: 1.75rem;
+  max-width: 44rem;
+}
+
+.steps li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: 1rem;
+}
+
+/*
+ * 子元素显式定位到第二列。
+ *
+ * 不写的话 grid 会把 li 的每个子元素**自动依次放置**：
+ * ::before 占 (1,1)，h3 占 (1,2)，然后 p 被排到第二行的第一列——
+ * 那一格只有 2rem 宽，正文就在里面一行两三个字地竖着排。
+ * 这不是理论风险，它真的渲染成那样了。
+ */
+.steps li::before {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.steps h3,
+.steps p,
+.steps .checksum {
+  grid-column: 2;
+}
+
+.steps li::before {
+  content: counter(step);
+  font-family: var(--serif);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.9rem;
+  color: var(--primary);
+  text-align: center;
+  border: 1px solid var(--rule-strong);
+  border-radius: 50%;
+  width: 1.9rem;
+  height: 1.9rem;
+}
+
+.steps h3 {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.9rem;
+}
+
+.steps p {
+  margin: 0.2rem 0 0;
+  color: var(--ink-soft);
+  max-width: var(--measure);
+}
+
+.reqs {
+  margin: 2.5rem 0 0;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.875rem;
+  color: var(--ink-muted);
+}
+
+/* 安装步骤里的校验行。等宽字体是它唯一重要的样式：
+   SHA-256 要能逐字符对读，换行时不断在字符中间 */
+.checksum {
+  margin: 0.75rem 0 0;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  word-break: break-all;
+}
+
+/* 「它有什么」的两列网格。桌面双栏、手机单栏，
+   复用 .def 的字型，只加栅格与分隔线 */
+.defs-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem 3rem;
+}
+
+@media (min-width: 48rem) {
+  .defs-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.defs-grid .def {
+  padding-top: 1rem;
+  border-top: 1px solid var(--rule);
+}
+
+/* ============================ 结尾 ============================ */
+
+.end {
+  padding-bottom: clamp(3rem, 7vw, 5rem);
+}
+
+.end-line {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: clamp(1.5rem, 3.2vw, 2.25rem);
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.end-note {
+  margin: 1rem 0 0;
+  max-width: var(--measure);
+  color: var(--ink-soft);
+}
+
+/* ============================ 页脚 ============================ */
+
+.foot {
+  padding-top: 1.75rem;
+  padding-bottom: 2.5rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.875rem;
+  color: var(--ink-muted);
+}
+
+.foot p {
+  margin: 0;
+}
+
+.foot p + p {
+  margin-top: 0.6rem;
+}
+
+.foot a {
+  color: var(--ink-soft);
+  text-decoration: none;
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.foot a:hover {
+  color: var(--ink);
+  border-bottom-color: var(--ink-muted);
+}
+
+.dot {
+  padding: 0 0.5rem;
+  color: var(--rule-strong);
+}
+
+.foot-fine {
+  max-width: 40rem;
+  line-height: 1.75;
+}
+
+/* ---- 待办（D55：只有文字，右滑露出「删」） ---- */
+
+.demo-todo-title {
+  margin: 1.25rem 0 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.todo-list {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+}
+
+/*
+ * 一行待办 = 一个「窗口 + 内容」的容器。
+ * 内容用 transform 往右推，左边露出下面的「删」——与 App 的
+ * SwipeToDelete 同一个办法（那里是 translateX + 吸附）。
+ */
+.todo {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--rule);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.todo:last-child {
+  border-bottom: none;
+}
+
+/* 底下那一层：红色「删」。它一直在，内容推开才露出来 */
+.todo-delete {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: var(--danger);
+  color: #fff;
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+/* 内容层：手指往右推它就跟着走 */
+.todo-body {
+  position: relative;
+  background: var(--surface);
+  padding: 0.85rem 0;
+  transition: transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  touch-action: pan-y;
+}
+
+.todo.open .todo-body {
+  transform: translateX(4.5rem);
+}
+
+.todo.dragging .todo-body {
+  transition: none;
+}
+
+.todo-title {
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.todo-meta {
+  margin-top: 0.1rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--ink-muted);
+}
+
+.todo-meta.overdue {
+  color: var(--danger);
+}
